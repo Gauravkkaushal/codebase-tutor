@@ -1,0 +1,11 @@
+[project]
+name = "py-app"
+description = "Python fixture app"
+dependencies = [
+  "flask>=3.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]

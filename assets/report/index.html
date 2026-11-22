@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codebase Tutor report</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true">▚</span><span id="repo-title">Codebase Tutor</span></div>
+  <div class="meta" id="meta-line"></div>
+  <div class="top-actions">
+    <button class="ghost" id="legend-btn" aria-haspopup="dialog" aria-controls="legend"></button>
+    <label class="sr-only" for="lang-select">Language</label>
+    <select id="lang-select"></select>
+  </div>
+</header>
+<div class="layout">
+  <nav class="sidenav" id="sidenav" aria-label="Report sections"></nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<div class="legend" id="legend" role="dialog" aria-modal="false" hidden></div>
+<noscript><p style="padding:2rem">This report needs JavaScript. The Markdown version (report.md) is in the same folder.</p></noscript>
+<script src="vendor/cytoscape.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

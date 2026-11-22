@@ -1,0 +1,7 @@
+# Optional but recommended: precise JavaScript/TypeScript parsing. Python analysis uses only the stdlib.
+tree-sitter>=0.23
+tree-sitter-javascript>=0.23
+tree-sitter-typescript>=0.23
+# Development only
+# pytest>=8
+# playwright>=1.40   (browser test of the HTML report)
