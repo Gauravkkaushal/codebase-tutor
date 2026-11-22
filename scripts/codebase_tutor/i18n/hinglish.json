@@ -318,5 +318,9 @@
 "df_kind_library": "Library",
 "stage_title": "Request ka safar: har hop ek step hai",
 "hero_eyebrow": "Codebase report",
-"play_to_here": "Yahan tak chalao"
+"play_to_here": "Yahan tak chalao",
+"df_basis_frontend": "frontend code: .jsx/.tsx/.vue/.svelte files ya frontend folder (inferred)",
+"df_basis_models": "iski files database package import karti hain (models / data access)",
+"kind_client-call": "Frontend request bhejta hai",
+"kind_db-call": "Database access"
 }

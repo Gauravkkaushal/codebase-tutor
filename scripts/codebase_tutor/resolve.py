@@ -389,7 +389,10 @@ def resolve_all(root: Path, store, all_paths: set) -> dict:
         prefixes = mounts.get(r["file"], [])
         prefix = prefixes[0].rstrip("/") if prefixes else ""
         path = r["path"] if r["path"].startswith("/") else "/" + r["path"]
-        full_updates.append(((prefix + path) if prefix else path, r["id"]))
+        full = (prefix + path) if prefix else path
+        if prefix and path == "/" and langs.get(r["file"]) != "python":
+            full = prefix  # Express/Hono/Koa: router.get('/') under app.use('/api/cart') answers GET /api/cart
+        full_updates.append((full, r["id"]))
     db.executemany("UPDATE routes SET full_path=? WHERE id=?", full_updates)
     _file_routes(db, syms_by_file_qual, exports)
 

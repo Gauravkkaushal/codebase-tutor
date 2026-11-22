@@ -7,6 +7,7 @@ import time
 
 from .config import data_dir
 from .evidence import EvidenceError, read_lines, text_hash
+from .access import AccessIndex, _norm
 from .graph import find_symbols, sym_row
 from .resolve import COMMON_NAMES
 from .snapshots import git_info
@@ -29,6 +30,7 @@ class _Tracer:
         self.lines_cache = {}
         self.weakest = "verified-source"
         self.truncated = False
+        self.access = AccessIndex(store, root)
 
     def line_hash(self, file, line):
         if file not in self.lines_cache:
@@ -75,7 +77,7 @@ class _Tracer:
             if c["kind"] in ("try",):
                 continue
             events.append((c["line"], 0, "control", row_dict(c)))
-        for c in self.store.q("SELECT line, expr, name, resolved_id, resolution, external FROM calls WHERE file=? AND caller=? ORDER BY line",
+        for c in self.store.q("SELECT line, expr, name, receiver, resolved_id, resolution, external FROM calls WHERE file=? AND caller=? ORDER BY line",
                               (s["file"], s["qualname"])):
             events.append((c["line"], 1, "call", row_dict(c)))
         # Same line: conditions first, then the calls they make, then the exit (return/throw/respond).
@@ -107,7 +109,15 @@ class _Tracer:
                 continue
             seen_lines_calls.add(key)
             res = ev["resolution"] or "unresolved"
-            if ev["resolved_id"]:
+            dbx = None if ev["resolved_id"] or res == "external" else \
+                self.access.classify_call(s["file"], ev["expr"], ev["name"], ev["receiver"])
+            if dbx:
+                verb = {"read": "reads from", "write": "writes to", "query": "queries"}[dbx["op"]]
+                self.add(kind="external-call", file=s["file"], line=line, symbol=s["qualname"], depth=level + 1,
+                         text=f"{ev['expr']}() {verb} {dbx['label']} via model {dbx['model']} ({dbx['model_file']})",
+                         outcome="neutral", verification="structurally-inferred", module=dbx["package"],
+                         db_op=dbx["op"], db_model=dbx["model"], db_model_file=dbx["model_file"])
+            elif ev["resolved_id"]:
                 t = sym_row(self.store, ev["resolved_id"])
                 self.add(kind="call", file=s["file"], line=line, symbol=s["qualname"], depth=level + 1,
                          text=f"calls {ev['expr']}() → {t['qualname']} ({t['file']}:{t['start_line']})", outcome="neutral",
@@ -135,6 +145,11 @@ def resolve_target(store, target: str):
         rows = store.q("SELECT r.* FROM routes r JOIN files f ON f.path=r.file WHERE (r.full_path=? OR r.path=?) "
                        "AND (r.method=? OR ?='ANY' OR r.method='ALL') ORDER BY f.role='test', r.file, r.line",
                        (path, path, method, method))
+        if not rows:
+            rows = [r for r in store.q("SELECT r.* FROM routes r JOIN files f ON f.path=r.file WHERE r.kind='route' "
+                                       "AND (r.method=? OR ?='ANY' OR r.method='ALL') ORDER BY f.role='test', r.file, r.line",
+                                       (method, method))
+                    if _norm(r["full_path"] or r["path"] or "") == _norm(path)]
         if rows:
             return "route", [row_dict(r) for r in rows]
         return "missing", []
@@ -170,6 +185,10 @@ def trace(store, root, target: str, depth: int = 4, title: str | None = None, sa
     tr = _Tracer(store, root, depth)
     if kind == "route":
         r = items[0]
+        for hc in [h for h in tr.access.http_calls() if h["route"]["id"] == r["id"]][:3]:
+            tr.add(kind="client-call", file=hc["file"], line=hc["line"], depth=0, outcome="neutral", symbol=hc["caller"],
+                   text=f"{hc['caller'] or hc['file']} sends {hc['method']} {hc['url']} ({hc['expr']})",
+                   verification="structurally-inferred")
         if r.get("full_path") and r["full_path"] != r["path"]:
             mounts = store.q("SELECT file, line, path FROM routes WHERE kind='mount' AND mount_target=?", (r["file"],))
             for mrow in mounts:

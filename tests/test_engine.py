@@ -240,3 +240,31 @@ def test_system_map_layers_storages_and_evidence(js_repo, run_ct):
         assert e["evidence"], e
         for ev in e["evidence"]:
             assert (js_repo / ev["file"]).exists() and ev["line"] > 0
+
+
+def test_mern_frontend_calls_routes_and_models_hit_database(mern_repo, run_ct):
+    import json as _json
+    run_ct(mern_repo, "scan", "--quiet")
+    from codebase_tutor.store import Store
+    from codebase_tutor.dataflow import system_map
+    st = Store(mern_repo / ".codebase-tutor" / "knowledge" / "index.db")
+    # router.get('/') under app.use('/api/notes') answers GET /api/notes (no trailing slash)
+    paths = {(r["method"], r["full_path"]) for r in st.q("SELECT method, full_path FROM routes WHERE kind='route'")}
+    assert ("GET", "/api/notes") in paths and ("POST", "/api/notes/add") in paths
+    sm = system_map(st)
+    nodes = {n["id"]: n for n in sm["nodes"]}
+    assert nodes["client/src"]["layer"] == "client"
+    assert nodes["server/models"]["layer"] == "data"
+    req = [e for e in sm["edges"] if e["kind"] == "request" and e["source"] == "client/src"]
+    assert len(req) == 1 and req[0]["target"] == "server/routes" and req[0]["weight"] == 2   # incl. URL on next line
+    assert "@External HTTP APIs" not in nodes                                               # axios explained by routes
+    db = [e for e in sm["edges"] if e["source"] == "server/controllers" and e["target"] == "@MongoDB"][0]
+    assert db["ops"] == {"read": 1, "write": 1} and db["verification"] == "structurally-inferred"
+    # flow: frontend caller first, then route, then the Mongo write through the model instance
+    out = run_ct(mern_repo, "trace", "POST /api/notes/add")
+    flow = out.get("flow", out)
+    kinds = [s["kind"] for s in flow["steps"]]
+    assert kinds[0] == "client-call" and flow["steps"][0]["file"] == "client/src/pages/Notes.jsx"
+    dbs = [s for s in flow["steps"] if s.get("db_op")]
+    assert [(s["db_op"], s["db_model"]) for s in dbs] == [("write", "Note")]
+    assert "error" not in run_ct(mern_repo, "trace", "GET /api/notes/")                       # trailing slash tolerated

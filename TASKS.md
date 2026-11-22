@@ -57,6 +57,11 @@ Legend: [x] done · [~] MVP / partial · [ ] not started
 - [x] Flow player stage: animated packet through client → files → callee files → storages, outcome colours
 - [x] Overview hero with count-up stats + mini system map; view transitions; reduced-motion support
 - [x] i18n keys for all new UI in en/hi/hinglish; browser + engine tests
+- [x] Full-stack inference (`access.py`): frontend axios/fetch URLs matched to the repo's own routes (request edges
+      and a `client-call` first step in flows); Mongoose/ORM model handles → database read/write steps and edges
+      (structurally-inferred); `router.get('/')` under a mount answers the mount path; trailing-slash tolerant trace
+- [x] Small repos get finer modules (e.g. `frontend/src/pages`); frontend code placed in the client column,
+      model folders in the data column; MERN fixture test
 
 ## Next
 - [ ] Go / Java / Rust / C# extractors

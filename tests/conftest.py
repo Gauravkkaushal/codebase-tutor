@@ -50,3 +50,8 @@ def ct(repo, *args, check=True):
 @pytest.fixture
 def run_ct():
     return ct
+
+
+@pytest.fixture
+def mern_repo(tmp_path):
+    return make_repo(tmp_path, "mern_app")

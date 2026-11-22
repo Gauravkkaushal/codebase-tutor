@@ -217,16 +217,20 @@ window.CTViz = (function () {
     const list = [], idx = {};
     const add = (id, p) => { if (!(id in idx)) { idx[id] = list.length; list.push(Object.assign({ id }, p)); } };
     const steps = flow.steps || [];
-    const hasClient = steps.length && (steps[0].kind === 'route' || steps[0].kind === 'mount');
-    if (hasClient) add('@client', { label: 'HTTP client', kind: 'client' });
+    const front = steps.find((s) => s.kind === 'client-call');
+    const hasClient = !!front || (steps.length && (steps[0].kind === 'route' || steps[0].kind === 'mount'));
+    const clientId = front ? front.file : '@client';
+    if (front) add(front.file, { label: front.file.split('/').pop(), sub: front.file, kind: 'client', front: true });
+    else if (hasClient) add('@client', { label: 'HTTP client', kind: 'client' });
     const seq = steps.map((s) => {
       if (s.kind === 'external-call' && (s.storage || s.module)) {
         const id = '@' + (s.storage || s.module);
         add(id, { label: s.storage || s.module, kind: 'storage', storage_kind: s.storage_kind || 'library', pkg: s.module });
         return id;
       }
-      if (s.kind === 'route' || s.kind === 'mount') return '@client';
-      if (s.kind === 'respond' && hasClient) return '@client';
+      if (s.kind === 'client-call') return clientId;
+      if (s.kind === 'route' || s.kind === 'mount') return clientId;
+      if (s.kind === 'respond' && hasClient) return clientId;
       if (s.kind === 'call' && s.target_id != null) {
         const tf = symFile(s.target_id);
         if (tf && tf !== s.file) {
@@ -250,7 +254,7 @@ window.CTViz = (function () {
     const W = 760, boxW = 150, boxH = 54;
     const perRow = Math.max(1, Math.min(4, files.length));
     const rows = Math.ceil(files.length / perRow) || 1;
-    const left = client ? 150 : 30;
+    const left = client ? (client.front ? 175 : 150) : 30;
     const H = 60 + rows * 86 + (stores.length ? 96 : 0);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = '';
@@ -259,7 +263,7 @@ window.CTViz = (function () {
     el('feGaussianBlur', { stdDeviation: 3.5, result: 'b' }, glow);
     const fm = el('feMerge', {}, glow); el('feMergeNode', { in: 'b' }, fm); el('feMergeNode', { in: 'SourceGraphic' }, fm);
     const pos = {};
-    if (client) pos[client.id] = { x: 70, y: 72 + ((rows - 1) * 86) / 2 };
+    if (client) pos[client.id] = { x: client.front ? 85 : 70, y: 72 + ((rows - 1) * 86) / 2 };
     const span = W - left - 30;
     files.forEach((p, i) => {
       const r = Math.floor(i / perRow), c = i % perRow;
@@ -272,7 +276,7 @@ window.CTViz = (function () {
     list.forEach((p) => {
       const q = pos[p.id]; if (!q) return;
       const isStore = p.kind === 'storage', isClient = p.kind === 'client';
-      const w = isClient ? 110 : boxW;
+      const w = isClient && !p.front ? 110 : boxW;
       const g = el('g', { class: 'st-node' + (isStore ? ' st-store' : ''), transform: `translate(${q.x - w / 2},${q.y - boxH / 2})` }, gNodes);
       const color = isStore ? css(KIND_VAR[p.storage_kind] || '--k-lib', '#888') : isClient ? css('--l-client', '#888') : css('--accent', '#2557c7');
       el('rect', { width: w, height: boxH, rx: 12, class: 'st-box' }, g);
@@ -280,7 +284,7 @@ window.CTViz = (function () {
       const tl = el('text', { x: 38, y: 23, class: 'sm-label' }, g);
       tl.textContent = p.label.length > 16 ? p.label.slice(0, 15) + '…' : p.label;
       const sub = el('text', { x: 38, y: 40, class: 'sm-sub st-fn' }, g);
-      sub.textContent = isStore ? (p.pkg || '') : isClient ? '' : '';
+      sub.textContent = isStore ? (p.pkg || '') : p.front ? 'frontend' : '';
       const tt = el('title', {}, g); tt.textContent = p.sub || p.label;
       els[p.id] = { g, sub, w };
     });
@@ -307,16 +311,17 @@ window.CTViz = (function () {
         }
         prevId = sid;
       }
-      Object.entries(els).forEach(([pid, x]) => x.g.classList.toggle('cur', pid === id));
+      Object.entries(els).forEach(([pid, x]) => { x.g.classList.toggle('cur', pid === id); x.g.classList.remove('flash-success', 'flash-failure'); });
       const callee = step.kind === 'call' && step.target_id != null && id !== step.file ? symName(step.target_id) : null;
-      if ((callee || step.symbol) && els[id] && !String(id).startsWith('@')) {
+      if (step.kind === 'client-call' && step.symbol && els[id]) els[id].sub.textContent = String(step.symbol).slice(0, 20);
+      else if ((callee || step.symbol) && els[id] && !String(id).startsWith('@') && step.kind !== 'route' && step.kind !== 'mount' && step.kind !== 'respond') {
         const fn = callee || String(step.symbol).replace(/^handler:/, '').replace(/@\d+(#\d+)?$/, '');
         els[id].sub.textContent = fn.length > 20 ? fn.slice(0, 19) + '…' : fn;
       }
       const from = cur >= 0 && pos[seq[cur]] ? { x: pos[seq[cur]].x, y: pos[seq[cur]].y - boxH / 2 - 6 } : q;
       const outcome = step.outcome || 'neutral';
       packet.setAttribute('class', 'st-packet o-' + outcome + (step.verification === 'unresolved' ? ' unres' : ''));
-      const glyph = { call: '→', if: '◆', else: '◇', return: '↩', throw: '⚡', raise: '⚡', respond: '⇦', 'next-error': '⚡', next: '⇢', catch: '⚑', 'external-call': '⇣', enter: '▸', route: '⇢', mount: '⇢', dispatch: '⇢' }[step.kind] || '•';
+      const glyph = { call: '→', if: '◆', else: '◇', return: '↩', throw: '⚡', raise: '⚡', respond: '⇦', 'next-error': '⚡', next: '⇢', catch: '⚑', 'external-call': '⇣', 'client-call': '⇢', enter: '▸', route: '⇢', mount: '⇢', dispatch: '⇢' }[step.kind] || '•';
       badge.textContent = glyph;
       const pathD = from.x === q.x && from.y === q.y ? `M${q.x},${q.y} L${q.x},${q.y}` : curve(from, q);
       const tmp = el('path', { d: pathD, fill: 'none', stroke: 'none' }, gTop);

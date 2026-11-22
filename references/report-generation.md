@@ -15,7 +15,10 @@ Data Flow (system map from `dataflow.system_map`: layered columns client → ent
 services → data → library → storage; storage/external nodes with kind icons — database, cache, session, files,
 external API, queue, auth, email, cloud, views; animated packets per edge kind (request / imports-calls /
 data read-write), click for connections with evidence lines, pause, and "replay a flow" which moves a comet through
-the components a traced flow visits; storage cards with packages and call sites) · Architecture Explorer (module/file graph from real edges, filters, search, node
+the components a traced flow visits; storage cards with packages and call sites. Full-stack repos: frontend HTTP calls whose URL matches a route in the
+repo become request edges from the frontend module (and the first `client-call` step of that route's flow); calls on
+names imported from a local file that imports a database package (Mongoose models, a `db.js` pool) and on variables
+assigned from them become database read/write edges and steps — both labelled structurally-inferred) · Architecture Explorer (module/file graph from real edges, filters, search, node
 details with example edges, drill-down) · Execution Flows (playback: play/pause/prev/next/restart/speed, keyboard:
 space/←/→; animated request-journey stage — packet moves client → file → callee file / storage and back, green
 on success, red on failure, "play up to here" per outcome; synchronized source with highlighted line; narration from `flow-notes`; outcomes) · Code

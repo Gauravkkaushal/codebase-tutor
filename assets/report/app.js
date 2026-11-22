@@ -221,7 +221,7 @@
   };
 
   // ---- data flow / system map
-  const BASIS = { 'entry point': 'df_basis_entry', 'defines routes': 'df_basis_routes', 'contains route handlers': 'df_basis_handlers', 'folder naming (inferred)': 'df_basis_folder' };
+  const BASIS = { 'entry point': 'df_basis_entry', 'defines routes': 'df_basis_routes', 'contains route handlers': 'df_basis_handlers', 'folder naming (inferred)': 'df_basis_folder', 'frontend code (inferred)': 'df_basis_frontend', 'database models': 'df_basis_models' };
   function evRefs(list, n) {
     return (list || []).slice(0, n || 4).map((x) => `<li>${ref(x.file, x.line)} <span class="small muted">${esc(x.text || '')}</span></li>`).join('');
   }
@@ -273,7 +273,7 @@
     if (n.kind === 'module') {
       const basis = BASIS[n.layer_basis];
       h += `<p class="small">${esc(t('df_layer_' + n.layer))} · ${n.files} ${esc(t('files').toLowerCase())} · ${(n.lines || 0).toLocaleString()} ${esc(t('lines').toLowerCase())}</p>` +
-        `<p class="small"><strong>${esc(t('df_layer_basis'))}:</strong> ${esc(basis ? t(basis) : n.layer_basis || '')} ${badge(n.layer_basis === 'folder naming (inferred)' ? 'structurally-inferred' : 'verified-source')}</p>`;
+        `<p class="small"><strong>${esc(t('df_layer_basis'))}:</strong> ${esc(basis ? t(basis) : n.layer_basis || '')} ${badge(/inferred/.test(n.layer_basis || '') ? 'structurally-inferred' : 'verified-source')}</p>`;
     } else if (n.kind === 'storage') {
       h += `<p class="small">${esc(t('df_kind_' + n.storage_kind))}</p><div class="chips">${(n.packages || []).map((p) => `<code class="chip mono">${esc(p)}</code>`).join('')}</div>`;
     } else h += `<p class="small muted">${esc(t('df_client_sub'))}</p>`;
@@ -464,7 +464,7 @@
     // narration
     const notes = notesFor(f);
     const note = notes && notes.step_notes && notes.step_notes[String(s.n)];
-    $('#narr').innerHTML = `<div class="narration"><strong>${esc(t('kind_' + s.kind) !== 'kind_' + s.kind ? t('kind_' + s.kind) : s.kind)}</strong> — ${esc(s.text)} ${badge(s.verification === 'unresolved' ? 'unresolved' : s.verification, s.verification === 'unresolved' ? t('unresolved') : null)}${note ? md(loc(note)) : ''}</div>`;
+    $('#narr').innerHTML = `<div class="narration"><strong>${esc(s.db_op ? t('kind_db-call') : t('kind_' + s.kind) !== 'kind_' + s.kind ? t('kind_' + s.kind) : s.kind)}</strong> — ${esc(s.text)} ${badge(s.verification === 'unresolved' ? 'unresolved' : s.verification, s.verification === 'unresolved' ? t('unresolved') : null)}${note ? md(loc(note)) : ''}</div>`;
     // code
     const src = D.sources[s.file];
     const end = s.kind === 'enter' ? Math.min(s.end_line || s.line, s.line + 40) : s.line;

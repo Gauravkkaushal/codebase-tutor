@@ -154,7 +154,7 @@ def build_data(store, root: Path, lang: str) -> dict:
     ov.pop("git", None)
     return {"meta": meta, "i18n": load_i18n(), "overview": ov,
             "graph": {"modules": mg, "file_nodes": file_nodes, "file_edges": fg["edges"], "cycles": cycles(store)},
-            "system_map": _jsonable(system_map(store)),
+            "system_map": _jsonable(system_map(store, root=root)),
             "symbols": symbols, "symbol_edges": sym_edges, "imports": imports, "files": files, "sources": sources,
             "flows": flows, "explanations": explanations, "contexts": contexts, "changes": changes,
             "test_runs": runs, "runtime": traces}

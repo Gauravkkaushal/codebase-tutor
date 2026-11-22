@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
-from .graph import layer_hint, module_graph, module_of
+from .graph import layer_hint, module_of
 
 # package root -> (kind, label). Kinds drive the icon and colour in the report.
 STORAGE = {
@@ -15,7 +15,8 @@ STORAGE = {
     "typeorm": ("database", "SQL (TypeORM)"), "@prisma/client": ("database", "Database (Prisma)"), "prisma": ("database", "Database (Prisma)"),
     "knex": ("database", "SQL (Knex)"), "drizzle-orm": ("database", "SQL (Drizzle)"), "sqlalchemy": ("database", "SQL (SQLAlchemy)"),
     "psycopg2": ("database", "PostgreSQL"), "psycopg": ("database", "PostgreSQL"), "pymongo": ("database", "MongoDB"),
-    "peewee": ("database", "SQL (peewee)"), "django.db": ("database", "Database (Django ORM)"), "redis-om": ("database", "Redis"),
+    "peewee": ("database", "SQL (peewee)"), "flask_sqlalchemy": ("database", "SQL (SQLAlchemy)"),
+    "mongoengine": ("database", "MongoDB"), "motor": ("database", "MongoDB"), "tortoise": ("database", "SQL (Tortoise)"), "django.db": ("database", "Database (Django ORM)"), "redis-om": ("database", "Redis"),
     "elasticsearch": ("database", "Elasticsearch"), "@supabase/supabase-js": ("database", "Supabase"), "firebase-admin": ("database", "Firebase"),
     # caches
     "redis": ("cache", "Redis"), "ioredis": ("cache", "Redis"), "memcached": ("cache", "Memcached"), "lru-cache": ("cache", "In-memory cache"),
@@ -79,9 +80,50 @@ def classify_external(module: str):
     return None
 
 
-def system_map(store, max_modules: int = 16) -> dict:
+FRONTEND_EXT = (".jsx", ".tsx", ".vue", ".svelte")
+FRONTEND_DIRS = {"frontend", "client", "web", "webapp", "ui", "front-end", "front"}
+
+
+def pick_modules(src, max_modules: int) -> dict:
+    """file -> module id. Folders two levels deep; small repos get split one level deeper while it stays readable."""
+    out = {p: module_of(p, 2) for p in src}
+    groups = defaultdict(list)
+    for p in src:
+        groups[out[p]].append(p)
+    count = len(groups)
+    for m, files in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        sub = {module_of(p, 3) for p in files}
+        if len(sub) >= 2 and count - 1 + len(sub) <= int(max_modules * 0.75):
+            for p in files:
+                out[p] = module_of(p, 3)
+            count += len(sub) - 1
+    return out
+
+
+def _module_edges(store, modmap) -> dict:
+    edges = defaultdict(lambda: {"imports": 0, "calls": 0, "examples": []})
+    for r in store.q("SELECT file, line, resolved FROM imports WHERE resolved IS NOT NULL"):
+        a, b = modmap.get(r["file"]), modmap.get(r["resolved"])
+        if a and b and a != b:
+            e = edges[(a, b)]
+            e["imports"] += 1
+            if len(e["examples"]) < 3:
+                e["examples"].append({"file": r["file"], "line": r["line"], "to": r["resolved"]})
+    for r in store.q("SELECT c.file, s.file AS tfile FROM calls c JOIN symbols s ON s.id=c.resolved_id"):
+        a, b = modmap.get(r["file"]), modmap.get(r["tfile"])
+        if a and b and a != b:
+            edges[(a, b)]["calls"] += 1
+    return edges
+
+
+def system_map(store, max_modules: int = 16, root=None) -> dict:
+    from .access import AccessIndex
     roles = {r["path"]: (r["role"], r["lines"] or 0, r["entry"]) for r in store.q("SELECT path, role, lines, entry FROM files")}
     src = {p for p, v in roles.items() if v[0] == "source"}
+    modmap = pick_modules(src, max_modules)
+    acc = AccessIndex(store, root)
+    http = [h for h in acc.http_calls() if h["file"] in src]
+    http_lines = {(h["file"], h["line"]) for h in http}
     route_files = defaultdict(int)
     for r in store.q("SELECT file FROM routes WHERE kind='route'"):
         if r["file"] in src:
@@ -96,15 +138,17 @@ def system_map(store, max_modules: int = 16) -> dict:
     entry_files = {p for p, v in roles.items() if v[2] and p in src}
 
     # module activity: lines + routes + external use; keep the most relevant modules
-    mod = defaultdict(lambda: {"files": 0, "lines": 0, "routes": 0, "entry": 0, "handlers": 0, "hints": defaultdict(int), "file_list": []})
+    mod = defaultdict(lambda: {"files": 0, "lines": 0, "routes": 0, "entry": 0, "handlers": 0, "hints": defaultdict(int),
+                               "file_list": [], "front": 0})
     for p in src:
-        m = module_of(p)
+        m = modmap[p]
         d = mod[m]
         d["files"] += 1
         d["lines"] += roles[p][1]
         d["routes"] += route_files.get(p, 0)
         d["entry"] += p in entry_files
         d["handlers"] += p in handler_files
+        d["front"] += p.endswith(FRONTEND_EXT) or p.split("/")[0].lower() in FRONTEND_DIRS
         h = layer_hint(p)
         if h:
             d["hints"][h] += 1
@@ -114,13 +158,19 @@ def system_map(store, max_modules: int = 16) -> dict:
     # storage usage per module from external imports + external calls (with evidence)
     usage = defaultdict(lambda: {"count": 0, "evidence": [], "modules": set()})  # (module, storage_label) -> ...
     storage_kind = {}
+    covered = set()  # (module, label) whose package use is fully explained by in-repo HTTP calls
     for r in store.q("SELECT file, line, expr, external FROM calls WHERE resolution='external'"):
         if r["file"] not in src:
+            continue
+        if (r["file"], r["line"]) in http_lines:
+            cls = classify_external(r["external"])
+            if cls:
+                covered.add((modmap[r["file"]], cls[1]))
             continue
         cls = classify_external(r["external"])
         if not cls:
             continue
-        key = (module_of(r["file"]), cls[1])
+        key = (modmap[r["file"]], cls[1])
         storage_kind[cls[1]] = cls[0]
         u = usage[key]
         u["count"] += 1
@@ -133,7 +183,9 @@ def system_map(store, max_modules: int = 16) -> dict:
         cls = classify_external(r["module"])
         if not cls:
             continue
-        key = (module_of(r["file"]), cls[1])
+        key = (modmap[r["file"]], cls[1])
+        if key in covered and key not in usage:
+            continue
         storage_kind[cls[1]] = cls[0]
         u = usage[key]
         u["modules"].add(r["module"])
@@ -143,7 +195,7 @@ def system_map(store, max_modules: int = 16) -> dict:
     for r in store.q("SELECT c.file, c.line, c.expr FROM calls c JOIN files f ON f.path=c.file "
                      "WHERE f.lang='python' AND c.name='open' AND c.receiver IS NULL AND c.resolution='builtin' LIMIT 400"):
         if r["file"] in src:
-            key = (module_of(r["file"]), "File system")
+            key = (modmap[r["file"]], "File system")
             storage_kind["File system"] = "files"
             u = usage[key]
             u["count"] += 1
@@ -151,15 +203,48 @@ def system_map(store, max_modules: int = 16) -> dict:
             if len(u["evidence"]) < 6:
                 u["evidence"].append({"file": r["file"], "line": r["line"], "text": "open()", "via": "call"})
 
-    mg = module_graph(store, depth=2)
+    # database reads/writes through local model files (Mongoose models, db handles) — structurally inferred
+    db_ops = defaultdict(lambda: defaultdict(int))
+    for r in store.q("SELECT file, line, expr, name, receiver FROM calls WHERE resolved_id IS NULL AND "
+                     "(resolution IS NULL OR resolution NOT IN ('external','builtin')) AND receiver IS NOT NULL"):
+        if r["file"] not in src or r["file"] in acc.model_files:
+            continue
+        dbx = acc.classify_call(r["file"], r["expr"], r["name"], r["receiver"])
+        if not dbx:
+            continue
+        key = (modmap[r["file"]], dbx["label"])
+        storage_kind[dbx["label"]] = "database"
+        u = usage[key]
+        u["count"] += 1
+        u["modules"].add(dbx["package"])
+        u.setdefault("inferred", 0)
+        u["inferred"] += 1
+        db_ops[key][dbx["op"]] += 1
+        if len(u["evidence"]) < 6:
+            u["evidence"].append({"file": r["file"], "line": r["line"], "text": f"{r['expr']}() — {dbx['op']} via {dbx['model']}",
+                                  "via": "model"})
+
+    mg_edges = _module_edges(store, modmap)
     indeg, outdeg = defaultdict(int), defaultdict(int)
-    for e in mg["edges"]:
-        indeg[e["target"]] += e["imports"] + e["calls"]
-        outdeg[e["source"]] += e["imports"] + e["calls"]
+    for (a, b), e in mg_edges.items():
+        indeg[b] += e["imports"] + e["calls"]
+        outdeg[a] += e["imports"] + e["calls"]
+    http_by_mod = defaultdict(lambda: {"n": 0, "evidence": [], "routes": set()})
+    for h in http:
+        tm = modmap.get(h["route"]["file"])
+        if not tm:
+            continue
+        x = http_by_mod[(modmap[h["file"]], tm)]
+        x["n"] += 1
+        x["routes"].add(f"{h['method']} {h['route']['full_path'] or h['route']['path']}")
+        if len(x["evidence"]) < 6:
+            x["evidence"].append({"file": h["file"], "line": h["line"], "text": f"{h['expr']}('{h['url']}')", "via": "http-call"})
+            x["evidence"].append({"file": h["route"]["file"], "line": h["route"]["line"],
+                                  "text": f"{h['method']} {h['route']['full_path'] or h['route']['path']}", "via": "route"})
 
     def score(m, d):
         ext = sum(u["count"] + 1 for (mm, _), u in usage.items() if mm == m)
-        return (d["routes"] * 6 + d["entry"] * 10 + d["handlers"] * 4 + ext * 2 + min(d["lines"], 4000) / 400
+        return (d["routes"] * 6 + d["entry"] * 10 + sum(x["n"] for (a, _), x in http_by_mod.items() if a == m) * 2 + d["handlers"] * 4 + ext * 2 + min(d["lines"], 4000) / 400
                 + min(indeg[m], 200) * 0.5 + min(outdeg[m], 50) * 0.2)
 
     def noise(m):
@@ -170,7 +255,12 @@ def system_map(store, max_modules: int = 16) -> dict:
     keep = {m for m, _ in ranked[:max_modules]}
     nodes, edges = [], []
     for m, d in ranked[:max_modules]:
-        if d["entry"]:
+        models = sum(1 for f in d["file_list"] if f in acc.model_files)
+        if d["front"] * 2 > d["files"] and not d["routes"] and not d["handlers"]:
+            layer = "client"
+        elif models * 2 > d["files"] and not d["routes"] and not d["entry"]:
+            layer = "data"
+        elif d["entry"]:
             layer = "entry"
         elif d["routes"]:
             layer = "routing"
@@ -181,7 +271,8 @@ def system_map(store, max_modules: int = 16) -> dict:
             layer = HINT_TO_LAYER.get(top) or "services"
         nodes.append({"id": m, "label": m, "kind": "module", "layer": layer, "files": d["files"], "lines": d["lines"],
                       "routes": d["routes"], "file_list": sorted(d["file_list"]),
-                      "layer_basis": "entry point" if d["entry"] else "defines routes" if d["routes"] else
+                      "layer_basis": "frontend code (inferred)" if layer == "client" else
+                      "database models" if layer == "data" and models * 2 > d["files"] else "entry point" if d["entry"] else "defines routes" if d["routes"] else
                       "contains route handlers" if d["handlers"] else "folder naming (inferred)"})
     has_routes = any(n["routes"] for n in nodes)
     if has_routes:
@@ -193,7 +284,13 @@ def system_map(store, max_modules: int = 16) -> dict:
                                        (n["id"].rstrip("/") + "/%" if n["id"] != "(root)" else "%",))]
                 edges.append({"source": "@client", "target": n["id"], "kind": "request", "weight": n["routes"],
                               "label": f"{n['routes']} route(s)", "evidence": ev, "verification": "verified-source"})
-    for e in mg["edges"]:
+    for (a, b), x in http_by_mod.items():
+        if a in keep and b in keep:
+            edges.append({"source": a, "target": b, "kind": "request", "weight": x["n"],
+                          "label": f"{x['n']} HTTP call(s): " + ", ".join(sorted(x["routes"])[:4]),
+                          "evidence": x["evidence"], "verification": "structurally-inferred"})
+    for (a, b), e in mg_edges.items():
+        e = dict(e, source=a, target=b)
         if e["source"] in keep and e["target"] in keep:
             edges.append({"source": e["source"], "target": e["target"], "kind": "call", "weight": e["imports"] + e["calls"],
                           "label": f"{e['imports']} import(s), {e['calls']} call(s)",
@@ -208,9 +305,12 @@ def system_map(store, max_modules: int = 16) -> dict:
             storages[sid] = {"id": sid, "label": label, "kind": "storage", "storage_kind": storage_kind[label],
                              "layer": "storage", "packages": set()}
         storages[sid]["packages"] |= u["modules"]
+        ops = db_ops.get((m, label))
+        lab = (", ".join(f"{n} {op}(s)" for op, n in sorted(ops.items())) if ops else
+               f"{u['count']} call(s)" if u["count"] else "imported")
         edges.append({"source": m, "target": sid, "kind": "data", "weight": max(1, u["count"]),
-                      "label": f"{u['count']} call(s)" if u["count"] else "imported", "evidence": u["evidence"],
-                      "verification": "verified-source" if u["count"] else "structurally-inferred"})
+                      "label": lab, "evidence": u["evidence"], "ops": dict(ops) if ops else None,
+                      "verification": "structurally-inferred" if (u.get("inferred") or not u["count"]) else "verified-source"})
     for s in storages.values():
         s["packages"] = sorted(s["packages"])[:8]
         nodes.append(s)
