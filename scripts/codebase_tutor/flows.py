@@ -78,7 +78,13 @@ class _Tracer:
         for c in self.store.q("SELECT line, expr, name, resolved_id, resolution, external FROM calls WHERE file=? AND caller=? ORDER BY line",
                               (s["file"], s["qualname"])):
             events.append((c["line"], 1, "call", row_dict(c)))
-        events.sort(key=lambda e: (e[0], e[1], 0 if e[3].get("kind") in ("if", "else", "return", "throw", "raise") else 1))
+        # Same line: conditions first, then the calls they make, then the exit (return/throw/respond).
+        def _order(e):
+            if e[2] == "call":
+                return 1
+            k = e[3].get("kind")
+            return 0 if k in ("if", "else", "assert") else 2 if k in ("return", "throw", "raise") else 3
+        events.sort(key=lambda e: (e[0], _order(e)))
         seen_lines_calls = set()
         last_ctl = None
         for line, _, kind, ev in events:
