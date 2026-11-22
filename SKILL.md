@@ -4,7 +4,7 @@ description: Evidence-backed interactive tutor for unfamiliar or very large repo
 license: MIT
 compatibility: Any Agent Skills tool with a shell - Claude Code, OpenAI Codex, Google Antigravity, OpenCode, and DeepSeek models through Claude Code or OpenCode. Needs Python 3.9+ and git. Tree-sitter wheels (pip install -r requirements.txt) for JS/TS; Python analysis uses the stdlib.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
   homepage: "docs/PRODUCT_SPEC.md"
 ---
 

@@ -129,11 +129,16 @@
   }
 
   // ------------------------------------------------------------------ chrome
-  const TABS = ['overview', 'architecture', 'flows', 'code', 'learn', 'contribute', 'changes', 'simulation'];
-  const state = { tab: 'overview', arg: '', flowIdx: 0, step: 0, playing: false, speed: 1, timer: null, archMode: 'modules', archModule: null, simTab: 'l1', learnLevel: 'all' };
+  const TABS = ['overview', 'architecture', 'dataflow', 'flows', 'code', 'learn', 'contribute', 'changes', 'simulation'];
+  const state = { tab: 'overview', arg: '', flowIdx: 0, step: 0, playing: false, speed: 1, timer: null, archMode: 'modules', archModule: null, simTab: 'l1', learnLevel: 'all', playTo: null };
+  const VZ = window.CTViz || null;
+  const SM = D.system_map && D.system_map.nodes && D.system_map.nodes.length ? D.system_map : null;
+  let live = [];        // running visualisations, destroyed on every render
+  let flowStage = null; let dashTimer = null;
+  const SYM_OPTS = { symFile: (id) => (symById.get(id) || [])[4] || null, symName: (id) => (symById.get(id) || [])[2] || null };
   function counts() {
     return {
-      flows: D.flows.length, learn: D.explanations.filter((e) => e.type !== 'flow-notes').length, contribute: D.contexts.length,
+      dataflow: SM ? SM.nodes.filter((n) => n.kind === 'storage').length : 0, flows: D.flows.length, learn: D.explanations.filter((e) => e.type !== 'flow-notes').length, contribute: D.contexts.length,
       changes: D.changes ? D.changes.files.length : 0, simulation: D.test_runs.length + D.runtime.length, code: Object.keys(D.sources).length
     };
   }
@@ -164,12 +169,17 @@
     const totalLines = ov.languages.reduce((a, l) => a + l.lines, 0);
     const routes = ov.routes.filter((r) => r.kind === 'route');
     const ovExp = D.explanations.find((e) => e.id === 'overview' || e.topic === 'architecture');
-    let h = `<h1>${esc(p.name || D.meta.repo_name)}</h1><p class="sub">${p.description ? esc(p.description) + ' · ' + ref(p.file, p.line) : esc(t('no_description'))}</p>`;
-    h += `<div class="stats">` + [
-      [Object.values(cov.by_role || {}).reduce((a, b) => a + b, 0), t('files')], [totalLines.toLocaleString(), t('code_lines')],
-      [ov.languages.length, t('languages')], [Object.values(ov.symbols || {}).reduce((a, b) => a + b, 0).toLocaleString(), t('symbols')],
-      [routes.length, t('routes')], [ov.test_files, t('test_files')]
-    ].map(([v, k]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join('') + `</div>`;
+    const storages = SM ? SM.nodes.filter((n) => n.kind === 'storage') : [];
+    let h = `<section class="hero"><div class="hero-grid" aria-hidden="true"></div><div class="hero-glow" aria-hidden="true"></div><div class="hero-in">` +
+      `<div class="eyebrow">${esc(t('hero_eyebrow'))}</div><h1>${esc(p.name || D.meta.repo_name)}</h1>` +
+      `<p class="sub">${p.description ? esc(p.description) + ' · ' + ref(p.file, p.line) : esc(t('no_description'))}</p>` +
+      `<div class="chips hero-chips">${(ov.frameworks || []).slice(0, 5).map((f) => `<span class="chip">${esc(f.name)}</span>`).join('')}${storages.slice(0, 5).map((n) => `<span class="chip store-chip" style="--kc:var(${VZ ? VZ.kindColorVar(n.storage_kind) : '--accent'})">${VZ ? VZ.iconMarkup(n.storage_kind, 14) : ''}${esc(n.label)}</span>`).join('')}</div>` +
+      `<div class="stats hero-stats">` + [
+        [Object.values(cov.by_role || {}).reduce((a, b) => a + b, 0), t('files')], [totalLines, t('code_lines')],
+        [ov.languages.length, t('languages')], [Object.values(ov.symbols || {}).reduce((a, b) => a + b, 0), t('symbols')],
+        [routes.length, t('routes')], [ov.test_files, t('test_files')]
+      ].map(([v, k], i) => `<div class="stat" style="--d:${i * 70}ms"><div class="v" data-count="${+v || 0}">${(+v || 0).toLocaleString()}</div><div class="k">${esc(k)}</div></div>`).join('') + `</div></div></section>`;
+    if (SM && VZ) h += `<div class="card mini-map"><div class="row"><strong>${esc(t('df_title'))}</strong><span class="small muted">${esc(t('df_shown_of', { shown: SM.modules_shown, total: SM.modules_total }))}</span><span class="spacer"></span><a href="#/dataflow">${esc(t('df_open_full'))} →</a></div><div id="mini-map"></div></div>`;
     if (ovExp) h += `<div class="card">${renderExplanation(ovExp, true)}</div>`;
     else h += `<div class="card"><strong>${esc(t('summary'))}</strong>${md(t('auto_summary', {
       lang: ov.languages[0] ? ov.languages[0].lang : '—', share: ov.languages[0] ? Math.round(ov.languages[0].share * 100) : 0,
@@ -203,6 +213,99 @@
       `<p class="small muted">${esc(t('limitations_static'))}</p>` +
       (ov.cycle_count ? `<p class="small">${esc(t('cycles_found', { n: ov.cycle_count }))}: ${ov.cycles.slice(0, 3).map((c) => c.map((f) => ref(f)).join(' ↔ ')).join('<br>')}</p>` : '') + `</div>`;
     return h;
+  };
+  V.overview.after = function () {
+    if (VZ) VZ.countUp($('.hero'));
+    const mm = $('#mini-map');
+    if (mm && SM && VZ) live.push(VZ.SystemMap(mm, SM, { t, compact: true, onSelect: () => { location.hash = '#/dataflow'; } }));
+  };
+
+  // ---- data flow / system map
+  const BASIS = { 'entry point': 'df_basis_entry', 'defines routes': 'df_basis_routes', 'contains route handlers': 'df_basis_handlers', 'folder naming (inferred)': 'df_basis_folder' };
+  function evRefs(list, n) {
+    return (list || []).slice(0, n || 4).map((x) => `<li>${ref(x.file, x.line)} <span class="small muted">${esc(x.text || '')}</span></li>`).join('');
+  }
+  function flowToMapSeq(f) {
+    const fileNode = new Map();
+    SM.nodes.forEach((n) => (n.file_list || []).forEach((p) => fileNode.set(p, n.id)));
+    const ids = new Set(SM.nodes.map((n) => n.id));
+    const seq = []; const stepOf = [];
+    const raw = VZ.participantsFor(f, SYM_OPTS).seq;
+    raw.forEach((pid, i) => {
+      const id = String(pid).startsWith('@') ? pid : (fileNode.get(pid) || null);
+      if (id && ids.has(id) && seq[seq.length - 1] !== id) { seq.push(id); stepOf.push(i); }
+    });
+    if (ids.has('@client') && seq.length && seq[0] !== '@client' && SM.edges.some((e) => e.source === '@client' && e.target === seq[0])) { seq.unshift('@client'); stepOf.unshift(0); }
+    return { seq, stepOf };
+  }
+  V.dataflow = function () {
+    let h = `<h1>${esc(t('nav_dataflow'))}</h1><p class="sub">${esc(t('df_sub'))}</p>`;
+    if (!SM) return h + empty('df_empty', 'ct scan');
+    if (!VZ) return h + empty('graph_lib_missing');
+    const stores = SM.nodes.filter((n) => n.kind === 'storage');
+    const kinds = Array.from(new Set(stores.map((n) => n.storage_kind)));
+    h += `<div class="player df-tools"><button id="df-pause">${VZ.reduceMotion ? '▶ ' + esc(t('df_resume')) : '❚❚ ' + esc(t('df_pause'))}</button>` +
+      (D.flows.length ? `<label class="small">${esc(t('df_replay'))} <select id="df-flow"><option value="">${esc(t('df_replay_pick'))}</option>${D.flows.map((f, i) => `<option value="${i}">${esc(f.title)}</option>`).join('')}</select></label><button class="primary" id="df-replay">▶ ${esc(t('df_replay_btn'))}</button>` : `<span class="small muted">${esc(t('df_no_flows'))} <code>ct trace "GET /"</code></span>`) +
+      `<span class="spacer"></span><span class="small muted">${esc(t('df_shown_of', { shown: SM.modules_shown, total: SM.modules_total }))}</span></div>` +
+      `<div class="df-legend small"><span><i class="sw sw-request"></i>${esc(t('df_edge_request'))}</span><span><i class="sw sw-call"></i>${esc(t('df_edge_call'))}</span><span><i class="sw sw-data"></i>${esc(t('df_edge_data'))}</span>` +
+      kinds.map((k) => `<span class="lk" style="--kc:var(${VZ.kindColorVar(k)})">${VZ.iconMarkup(k, 15)}${esc(t('df_kind_' + k))}</span>`).join('') + `</div>` +
+      `<div class="dfgrid"><div class="card map-card"><div id="sysmap"></div><div id="df-cap" class="replay-cap" hidden></div></div>` +
+      `<div class="card df-detail" id="df-detail"><p class="muted">${esc(t('df_detail_hint'))}</p></div></div>`;
+    h += `<h2>${esc(t('df_storages'))}</h2>`;
+    if (!stores.length) h += empty('df_no_storages');
+    else h += `<div class="grid cols-3 storage-grid">` + stores.map((n, i) => {
+      const inc = SM.edges.filter((e) => e.target === n.id);
+      const ev = inc.flatMap((e) => e.evidence || []);
+      return `<div class="card store-card" style="--kc:var(${VZ.kindColorVar(n.storage_kind)});--d:${i * 60}ms" data-node="${esc(n.id)}"><div class="row"><span class="store-ico">${VZ.iconMarkup(n.storage_kind, 26)}</span><div><strong>${esc(n.label)}</strong><div class="small muted">${esc(t('df_kind_' + n.storage_kind))}</div></div></div>` +
+        `<div class="chips" style="margin:8px 0">${(n.packages || []).map((p) => `<code class="chip mono">${esc(p)}</code>`).join('')}</div>` +
+        `<div class="small"><strong>${esc(t('df_used_by'))}:</strong> ${inc.map((e) => `<code>${esc(e.source)}</code>`).join(', ')}</div>` +
+        (ev.length ? `<ul class="list small">${evRefs(ev, 3)}</ul>` : '') + `</div>`;
+    }).join('') + `</div>`;
+    h += `<p class="small muted">${esc(t('df_note'))}</p>`;
+    return h;
+  };
+  function dfDetail(n, edges) {
+    const el = $('#df-detail'); if (!el) return;
+    const out = edges.filter((e) => e.source === n.id); const inn = edges.filter((e) => e.target === n.id);
+    const label = (id) => { const x = SM.nodes.find((m) => m.id === id); return x ? x.label : id; };
+    const list = (es, other) => es.map((e) => `<li><span class="sw sw-${esc(e.kind)}"></span><strong>${esc(label(e[other]))}</strong> <span class="small muted">${esc(e.label || '')}</span> ${badge(e.verification)}<ul class="list small ev-list">${evRefs(e.evidence, 3)}</ul></li>`).join('') || `<li class="muted">—</li>`;
+    let h = `<div class="row"><span class="store-ico" style="--kc:var(${n.kind === 'storage' ? VZ.kindColorVar(n.storage_kind) : '--accent'})">${VZ.iconMarkup(n.kind === 'storage' ? n.storage_kind : n.kind === 'client' ? 'client' : 'module', 24)}</span><h3 class="mono" style="margin:0">${esc(n.label)}</h3></div>`;
+    if (n.kind === 'module') {
+      const basis = BASIS[n.layer_basis];
+      h += `<p class="small">${esc(t('df_layer_' + n.layer))} · ${n.files} ${esc(t('files').toLowerCase())} · ${(n.lines || 0).toLocaleString()} ${esc(t('lines').toLowerCase())}</p>` +
+        `<p class="small"><strong>${esc(t('df_layer_basis'))}:</strong> ${esc(basis ? t(basis) : n.layer_basis || '')} ${badge(n.layer_basis === 'folder naming (inferred)' ? 'structurally-inferred' : 'verified-source')}</p>`;
+    } else if (n.kind === 'storage') {
+      h += `<p class="small">${esc(t('df_kind_' + n.storage_kind))}</p><div class="chips">${(n.packages || []).map((p) => `<code class="chip mono">${esc(p)}</code>`).join('')}</div>`;
+    } else h += `<p class="small muted">${esc(t('df_client_sub'))}</p>`;
+    h += `<h3>${esc(t('df_talks_to'))} (${out.length})</h3><ul class="list">${list(out, 'target')}</ul><h3>${esc(t('df_called_by'))} (${inn.length})</h3><ul class="list">${list(inn, 'source')}</ul>`;
+    if (n.file_list && n.file_list.length) h += `<h3>${esc(t('files'))}</h3><ul class="list small">${n.file_list.slice(0, 14).map((f) => `<li>${ref(f)}</li>`).join('')}</ul>`;
+    el.innerHTML = h;
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  }
+  V.dataflow.after = function () {
+    if (!SM || !VZ) return;
+    const map = VZ.SystemMap($('#sysmap'), SM, { t, onSelect: dfDetail });
+    live.push(map);
+    const pb = $('#df-pause');
+    pb.onclick = () => { if (map.isRunning()) { map.pause(); pb.innerHTML = '▶ ' + esc(t('df_resume')); } else { map.play(); pb.innerHTML = '❚❚ ' + esc(t('df_pause')); } };
+    $$('.store-card').forEach((c) => { c.onclick = () => { const n = SM.nodes.find((x) => x.id === c.dataset.node); if (n) { map.select(n.id); dfDetail(n, SM.edges.filter((e) => e.source === n.id || e.target === n.id)); $('#sysmap').scrollIntoView({ behavior: VZ.reduceMotion ? 'auto' : 'smooth', block: 'center' }); } }; });
+    const sel = $('#df-flow'); const btn = $('#df-replay');
+    if (!sel) return;
+    const run = () => {
+      const f = D.flows[+sel.value]; const cap = $('#df-cap');
+      if (!f) return;
+      const { seq, stepOf } = flowToMapSeq(f);
+      cap.hidden = false;
+      if (seq.length < 2) { cap.innerHTML = `${esc(t('df_replay_none'))} <a href="#/flows" data-flow="${sel.value}">${esc(t('open_player'))}</a>`; return; }
+      map.select(null);
+      const say = (k) => { const s = f.steps[stepOf[k]]; cap.innerHTML = `<span class="badge b-${s.outcome === 'failure' ? 'failed' : s.outcome === 'success' ? 'passed' : 'inferred'}">${esc(t('step'))} ${s.n}</span> <strong>${esc(SM.nodes.find((n) => n.id === seq[k]).label)}</strong> — ${esc(s.text)} · ${ref(s.file, s.line)}`; };
+      say(0);
+      map.replay(seq, say, () => { cap.insertAdjacentHTML('beforeend', ` <span class="small muted">· ${esc(t('df_replay_done'))}</span> <a href="#/flows" data-flow="${sel.value}">${esc(t('open_player'))}</a>`); });
+    };
+    btn.onclick = run;
+    $('#df-cap').addEventListener('click', (e) => { const a = e.target.closest('a[data-flow]'); if (a) { state.flowIdx = +a.dataset.flow; state.step = 0; } });
+    const m = /^flow:(\d+)$/.exec(state.arg || '');
+    if (m && D.flows[+m[1]]) { sel.value = m[1]; setTimeout(run, 350); }
   };
 
   // ---- architecture
@@ -272,13 +375,15 @@
         { selector: 'node[dim = 1]', style: { opacity: 0.45 } },
         { selector: 'node:selected', style: { 'border-width': 3, 'border-color': col('--hl-border') } },
         { selector: 'edge', style: { width: 'mapData(w, 1, 30, 1, 5)', 'line-color': col('--border'), 'target-arrow-color': col('--muted'), 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', opacity: 0.85 } },
-        { selector: 'edge.hot', style: { 'line-color': col('--accent'), 'target-arrow-color': col('--accent'), opacity: 1 } },
+        { selector: 'edge.hot', style: { 'line-color': col('--accent'), 'target-arrow-color': col('--accent'), opacity: 1, 'line-style': 'dashed', 'line-dash-pattern': [7, 4] } },
         { selector: 'node.cycle', style: { 'background-color': col('--bad') } }
       ],
       layout: { name: nodes.length > 250 ? 'concentric' : 'cose', animate: false, nodeRepulsion: 9000, idealEdgeLength: 90, padding: 30 }
     });
     cy.nodes().forEach((n) => { if (cycleFiles.has(n.id())) n.addClass('cycle'); });
     cy.on('tap', 'node', (ev) => { const id = ev.target.id(); cy.edges().removeClass('hot'); ev.target.connectedEdges().addClass('hot'); showNode(id, ev.target.data('kind')); });
+    if (dashTimer) clearInterval(dashTimer);
+    if (!(VZ && VZ.reduceMotion)) { let off = 0; dashTimer = setInterval(() => { off = (off - 1) % 1000; const hot = cy && cy.edges('.hot'); if (hot && hot.length) hot.style('line-dash-offset', off); }, 40); }
     cy.on('dbltap', 'node[kind = "module"]', (ev) => { state.archMode = 'files'; state.archModule = ev.target.id(); $('#arch-mode').value = 'files'; drawGraph(); });
   }
   function showNode(id, kind) {
@@ -317,7 +422,7 @@
     <button class="primary" id="p-play">${state.playing ? '❚❚ ' + esc(t('pause')) : '▶ ' + esc(t('play'))}</button><button id="p-next" aria-label="${esc(t('next'))}">${esc(t('next'))} ▶</button>
     <label class="small">${esc(t('speed'))} <select id="p-speed">${[0.5, 1, 2, 4].map((s) => `<option value="${s}"${s === state.speed ? ' selected' : ''}>${s}×</option>`).join('')}</select></label>
     <span class="spacer"></span><span id="p-count" class="small muted"></span></div>
-    <div class="flowgrid"><div class="card steps" id="steps"></div><div><svg class="lanes card" id="lanes" role="img" aria-label="${esc(t('lane_diagram'))}"></svg><div id="narr"></div><div id="step-code"></div></div></div>
+    <div class="flowgrid"><div class="card steps" id="steps"></div><div><div class="card stage-card"><div class="row small"><strong>${esc(t('stage_title'))}</strong><span class="spacer"></span>${SM ? `<a href="#/dataflow/flow:${state.flowIdx}">${esc(t('df_play_on_map'))} →</a>` : ''}</div><svg class="stage" id="stage" role="img" aria-label="${esc(t('stage_title'))}"></svg></div><div id="narr"></div><div id="step-code"></div></div></div>
     <h2>${esc(t('scenarios'))}</h2><div class="card" id="outcomes"></div>`;
   };
   V.flows.after = function () {
@@ -331,20 +436,23 @@
     $('#p-speed').onchange = (e) => { state.speed = +e.target.value; if (state.playing) { stopPlay(); startPlay(); } };
     $('#steps').innerHTML = f.steps.map((s, i) => `<div class="step" data-i="${i}" style="padding-left:${8 + (s.depth || 0) * 14}px"><span class="n">${s.n}</span><span class="o-${s.outcome}">${s.outcome === 'failure' ? '✗' : s.outcome === 'success' ? '✓' : '·'}</span><span>${esc(s.text)}${s.verification !== 'verified-source' ? ' ' + badge(s.verification === 'unresolved' ? 'unresolved' : s.verification, s.verification === 'unresolved' ? t('unresolved') : null) : ''}${s.stale ? ` <span class="badge b-stale">${esc(t('ev_stale'))}</span>` : ''}<span class="meta2">${esc(s.file)}:${s.line}</span></span></div>`).join('');
     $$('#steps .step').forEach((el) => { el.onclick = () => { stopPlay(); state.step = +el.dataset.i; drawStep(); }; });
-    $('#outcomes').innerHTML = (f.outcomes || []).length ? `<p class="small muted">${esc(t('scenarios_note'))}</p><ul class="list">` + f.outcomes.map((o) => `<li><span class="badge b-${o.outcome === 'failure' ? 'failed' : 'passed'}">${esc(t('outcome_' + o.outcome))}</span> <a href="#" data-step="${o.step - 1}">${esc(t('step'))} ${o.step}</a> · <code>${esc(o.text)}</code> · ${ref(o.file, o.line)}${o.nearest_guards.length ? `<br><span class="small muted">${esc(t('guards'))}: ${o.nearest_guards.map((g) => `<code>${esc(g.text)}</code>`).join(' → ')}</span>` : ''}</li>`).join('') + '</ul>' : `<p class="muted">${esc(t('no_outcomes'))}</p>`;
+    $('#outcomes').innerHTML = (f.outcomes || []).length ? `<p class="small muted">${esc(t('scenarios_note'))}</p><ul class="list">` + f.outcomes.map((o) => `<li><span class="badge b-${o.outcome === 'failure' ? 'failed' : 'passed'}">${esc(t('outcome_' + o.outcome))}</span> <a href="#" data-step="${o.step - 1}">${esc(t('step'))} ${o.step}</a> · <code>${esc(o.text)}</code> · ${ref(o.file, o.line)}${o.nearest_guards.length ? `<br><span class="small muted">${esc(t('guards'))}: ${o.nearest_guards.map((g) => `<code>${esc(g.text)}</code>`).join(' → ')}</span>` : ''} <button class="mini" data-play-to="${o.step - 1}">▶ ${esc(t('play_to_here'))}</button></li>`).join('') + '</ul>' : `<p class="muted">${esc(t('no_outcomes'))}</p>`;
     $$('#outcomes a[data-step]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); stopPlay(); state.step = +a.dataset.step; drawStep(); window.scrollTo({ top: 0, behavior: 'smooth' }); }; });
+    $$('#outcomes button[data-play-to]').forEach((b) => { b.onclick = () => { stopPlay(); state.step = 0; state.playTo = +b.dataset.playTo; drawStep(); window.scrollTo({ top: 0, behavior: VZ && VZ.reduceMotion ? 'auto' : 'smooth' }); startPlay(); }; });
+    flowStage = VZ ? VZ.FlowStage($('#stage'), f, SYM_OPTS) : null;
     drawStep();
   };
   function startPlay() {
     const f = D.flows[state.flowIdx]; state.playing = true;
     const btn = $('#p-play'); if (btn) btn.innerHTML = '❚❚ ' + esc(t('pause'));
     state.timer = setInterval(() => {
-      if (state.step >= f.steps.length - 1) { stopPlay(); return; }
+      const last = state.playTo != null ? state.playTo : f.steps.length - 1;
+      if (state.step >= last) { stopPlay(); return; }
       state.step++; drawStep();
     }, 1400 / state.speed);
   }
   function stopPlay() {
-    state.playing = false; if (state.timer) clearInterval(state.timer); state.timer = null;
+    state.playing = false; state.playTo = null; if (state.timer) clearInterval(state.timer); state.timer = null;
     const btn = $('#p-play'); if (btn) btn.innerHTML = '▶ ' + esc(t('play'));
   }
   function drawStep() {
@@ -364,33 +472,9 @@
     const stop = src ? Math.min(src.length, Math.max(end, s.line + 6)) : end;
     $('#step-code').innerHTML = `<div class="evh small muted" style="padding:6px 0">${ref(s.file, s.line, s.kind === 'enter' ? s.end_line : null)}${s.symbol ? ` · <code>${esc(s.symbol)}</code>` : ''}</div>` +
       codeBlock(s.file, start, stop, { highlight: [s.line], cur: s.line });
-    drawLanes(f);
+    if (flowStage) flowStage.show(state.step);
+    const sc = $('#step-code'); if (sc) { sc.classList.remove('flash'); void sc.offsetWidth; sc.classList.add('flash'); }
   }
-  function drawLanes(f) {
-    const svg = $('#lanes'); if (!svg) return;
-    const css = getComputedStyle(document.documentElement); const col = (v) => css.getPropertyValue(v).trim();
-    const W = svg.clientWidth || 600; const win = 22; const lo = Math.max(0, Math.min(state.step - 8, f.steps.length - win)); const hi = Math.min(f.steps.length, lo + win);
-    const files = []; f.steps.forEach((s) => { if (!files.includes(s.file)) files.push(s.file); });
-    const lanes = files.slice(0, 6); const laneOf = (file) => { const i = lanes.indexOf(file); return i < 0 ? lanes.length : i; };
-    const nl = lanes.length + (files.length > 6 ? 1 : 0); const lw = (W - 20) / Math.max(1, nl); const rowH = 11; const top = 34;
-    const H = top + (hi - lo) * rowH + 14; svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.style.height = H + 'px';
-    let g = '';
-    for (let i = 0; i < nl; i++) {
-      const x = 10 + lw * i + lw / 2; const name = i < lanes.length ? lanes[i].split('/').slice(-2).join('/') : t('other_files');
-      g += `<line x1="${x}" y1="${top - 6}" x2="${x}" y2="${H - 6}" stroke="${col('--border')}" stroke-dasharray="3 3"/><text x="${x}" y="14" text-anchor="middle" font-size="10" fill="${col('--muted')}">${esc(name.length > 26 ? '…' + name.slice(-25) : name)}</text>`;
-    }
-    let prev = null;
-    for (let i = lo; i < hi; i++) {
-      const s = f.steps[i]; const x = 10 + lw * laneOf(s.file) + lw / 2; const y = top + (i - lo) * rowH;
-      const c = s.outcome === 'failure' ? col('--bad') : s.outcome === 'success' ? col('--ok') : s.verification === 'unresolved' ? col('--unres') : col('--accent');
-      if (prev) g += `<line x1="${prev[0]}" y1="${prev[1]}" x2="${x}" y2="${y}" stroke="${col('--muted')}" stroke-width="1" opacity=".6"/>`;
-      const r = i === state.step ? 6 : (s.kind === 'enter' ? 4 : 3);
-      g += `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}"${i === state.step ? ` stroke="${col('--hl-border')}" stroke-width="3"` : ''}><title>${esc(s.n + '. ' + s.text)}</title></circle>`;
-      prev = [x, y];
-    }
-    svg.innerHTML = g;
-  }
-
   // ---- code
   V.code = function () {
     const [file, s, e] = parseCodeArg(state.arg);
@@ -550,7 +634,7 @@
       h += `<p>${badge('structurally-inferred')} ${esc(t('sim_l1_desc'))}</p>`;
       if (!D.flows.length) return h + empty('no_flows', 'ct trace <target>');
       D.flows.forEach((f, i) => {
-        h += `<div class="card" style="margin-bottom:10px"><div class="row"><strong>${esc(f.title)}</strong>${badge(f.verification)}<span class="spacer"></span><a href="#/flows" data-flow="${i}">${esc(t('open_player'))}</a></div><ul class="list small">` +
+        h += `<div class="card" style="margin-bottom:10px"><div class="row"><strong>${esc(f.title)}</strong>${badge(f.verification)}<span class="spacer"></span>${SM ? `<a href="#/dataflow/flow:${i}">${esc(t('df_play_on_map'))}</a> · ` : ''}<a href="#/flows" data-flow="${i}">${esc(t('open_player'))}</a></div><ul class="list small">` +
           (f.outcomes || []).map((o) => `<li><span class="badge b-${o.outcome === 'failure' ? 'failed' : 'passed'}">${esc(t('outcome_' + o.outcome))}</span> <code>${esc(o.text)}</code> · ${ref(o.file, o.line)}${o.nearest_guards.length ? ` — ${esc(t('when'))} ${o.nearest_guards.map((g) => `<code>${esc(g.text)}</code>`).join(' / ')}` : ''}</li>`).join('') + `</ul></div>`;
       });
     } else if (state.simTab === 'l2') {
@@ -587,8 +671,12 @@
   }
   function render() {
     if (state.tab !== 'flows') stopPlay();
+    live.forEach((x) => { try { x.destroy(); } catch (e) { /* ignore */ } }); live = [];
+    if (flowStage) { flowStage.destroy(); flowStage = null; }
+    if (dashTimer) { clearInterval(dashTimer); dashTimer = null; }
     chrome();
     const main = $('#main');
+    main.classList.remove('enter'); void main.offsetWidth; main.classList.add('enter');
     main.innerHTML = V[state.tab]();
     if (V[state.tab].after) V[state.tab].after();
     if (state.tab !== 'code') main.focus({ preventScroll: true });
@@ -600,6 +688,6 @@
     else if (e.key === 'ArrowLeft') { const p = $('#p-prev'); if (p) p.click(); }
   });
   window.addEventListener('hashchange', route);
-  window.addEventListener('resize', () => { if (state.tab === 'flows') drawStep(); });
+  
   route();
 })();

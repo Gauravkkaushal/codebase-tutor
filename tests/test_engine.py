@@ -218,3 +218,25 @@ def test_generated_data_stays_in_data_dir(js_repo, run_ct):
     run_ct(js_repo, "report")
     out = subprocess.run(["git", "-C", str(js_repo), "status", "--porcelain"], capture_output=True, text=True).stdout
     assert all(line[3:].startswith(".codebase-tutor/") for line in out.splitlines())
+
+
+def test_system_map_layers_storages_and_evidence(js_repo, run_ct):
+    run_ct(js_repo, "scan", "--quiet")
+    import sys
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "scripts"))
+    from codebase_tutor.store import Store
+    from codebase_tutor.dataflow import system_map
+    st = Store(js_repo / ".codebase-tutor" / "knowledge" / "index.db")
+    sm = system_map(st)
+    nodes = {n["id"]: n for n in sm["nodes"]}
+    assert nodes["@client"]["layer"] == "client"
+    assert nodes["src/routes"]["layer"] == "routing"
+    assert nodes["src/controllers"]["layer"] == "handlers"
+    stores = {n["label"]: n["storage_kind"] for n in sm["nodes"] if n["kind"] == "storage"}
+    assert stores == {"Password hashing": "auth", "JWT tokens": "auth"}
+    data = [e for e in sm["edges"] if e["kind"] == "data"]
+    assert {(e["source"], e["target"]) for e in data} == {("src/controllers", "@Password hashing"), ("src/services", "@JWT tokens")}
+    for e in sm["edges"]:
+        assert e["evidence"], e
+        for ev in e["evidence"]:
+            assert (js_repo / ev["file"]).exists() and ev["line"] > 0

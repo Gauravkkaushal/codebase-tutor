@@ -10,6 +10,7 @@ from . import __version__
 from .config import data_dir, load_config
 from .evidence import EvidenceError, read_lines, redact_line
 from .explain import evidence_status, load_all
+from .dataflow import classify_external, system_map
 from .graph import cycles, file_graph, layer_hint, module_graph, module_of
 from .overview import overview
 from .runtime import list_traces
@@ -78,6 +79,11 @@ def build_data(store, root: Path, lang: str) -> dict:
                 st["stale"] = cur != st["text_hash"]
                 stale += st["stale"]
         fl["stale_steps"] = stale
+        for st in fl.get("steps", []):
+            if st.get("kind") == "external-call" and st.get("module"):
+                cls = classify_external(st["module"])
+                if cls:
+                    st["storage_kind"], st["storage"] = cls
     changes_path = data_dir(root) / "knowledge" / "changes" / "latest.json"
     changes = json.loads(changes_path.read_text(encoding="utf-8")) if changes_path.exists() else None
     runs = []
@@ -148,9 +154,20 @@ def build_data(store, root: Path, lang: str) -> dict:
     ov.pop("git", None)
     return {"meta": meta, "i18n": load_i18n(), "overview": ov,
             "graph": {"modules": mg, "file_nodes": file_nodes, "file_edges": fg["edges"], "cycles": cycles(store)},
+            "system_map": _jsonable(system_map(store)),
             "symbols": symbols, "symbol_edges": sym_edges, "imports": imports, "files": files, "sources": sources,
             "flows": flows, "explanations": explanations, "contexts": contexts, "changes": changes,
             "test_runs": runs, "runtime": traces}
+
+
+def _jsonable(obj):
+    if isinstance(obj, set):
+        return sorted(obj)
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_jsonable(v) for v in obj]
+    return obj
 
 
 def build_report(store, root: Path, lang: str | None = None, out_dir: str | None = None) -> dict:
@@ -163,7 +180,7 @@ def build_report(store, root: Path, lang: str | None = None, out_dir: str | None
     out.mkdir(parents=True, exist_ok=True)
     data = build_data(store, root, lang)
     (out / "vendor").mkdir(exist_ok=True)
-    for name in ("index.html", "app.js", "styles.css"):
+    for name in ("index.html", "app.js", "viz.js", "styles.css"):
         shutil.copyfile(ASSETS / name, out / name)
     for p in (ASSETS / "vendor").iterdir():
         shutil.copyfile(p, out / "vendor" / p.name)
@@ -249,6 +266,17 @@ def render_markdown(data: dict, lang: str) -> str:
     for h in ov.get("hubs", [])[:10]:
         L.append(f"- {_cite(h['file'])} — {T('imported_by_n', n=h['imported_by_files'])}, {T('incoming_calls_n', n=h['incoming_calls'])}")
     L.append("")
+    sm = data.get("system_map") or {}
+    stores = [n for n in sm.get("nodes", []) if n["kind"] == "storage"]
+    if stores:
+        L.append(f"### {T('df_storages')}")
+        for n in stores:
+            ins = [e for e in sm["edges"] if e["target"] == n["id"]]
+            ev = next((x for e in ins for x in e.get("evidence", [])), None)
+            users = ", ".join(f"`{e['source']}`" for e in ins[:6])
+            L.append(f"- **{n['label']}** ({', '.join('`' + p + '`' for p in n.get('packages', [])[:4])}) ← {users}"
+                     + (f" — {T('evidence')}: {_cite(ev['file'], ev['line'])}" if ev else ""))
+        L.append("")
     routes = [r for r in ov.get("routes", []) if r["kind"] == "route"]
     if routes:
         L.append(f"### {T('routes')} ({len(routes)})")

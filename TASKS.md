@@ -50,7 +50,15 @@ Legend: [x] done · [~] MVP / partial · [ ] not started
 - [x] Installer + adapters for Claude Code, Codex, Antigravity
 - [ ] End-to-end trial inside Codex and Antigravity
 
-## Next (v0.2)
+## v0.3 — Visual report
+- [x] `dataflow.system_map`: layered components + storage/external systems (DB, cache, session, files, queues,
+      auth, email, cloud, templates) with call/import evidence on every edge
+- [x] Data Flow tab: animated system map, packets per edge kind, evidence details, flow replay on the map
+- [x] Flow player stage: animated packet through client → files → callee files → storages, outcome colours
+- [x] Overview hero with count-up stats + mini system map; view transitions; reduced-motion support
+- [x] i18n keys for all new UI in en/hi/hinglish; browser + engine tests
+
+## Next
 - [ ] Go / Java / Rust / C# extractors
 - [ ] Type-aware TS resolution (compiler API helper); optional SCIP import
 - [ ] NestJS / Spring / Django CBV / `register_blueprint` / `include_router` wiring

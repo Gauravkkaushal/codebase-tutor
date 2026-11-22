@@ -1,6 +1,6 @@
 {
   "name": "codebase-tutor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Evidence-backed AI agent skill for understanding unfamiliar codebases: architecture, execution flows with exact file:line evidence, contribution prep, change impact, interactive HTML reports (English, Hindi, Hinglish).",
   "bin": { "codebase-tutor": "bin/codebase-tutor.js" },
   "files": ["SKILL.md", "README.md", "LICENSE", "TASKS.md", "requirements.txt", "bin/", "scripts/", "references/", "assets/", "adapters/", "docs/"],

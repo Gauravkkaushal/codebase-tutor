@@ -7,11 +7,18 @@
 | `report.md` | Readable report in the selected language: overview + stack (with evidence), structure, entry points, hubs, routes, env-var names, learning path, explanations with excerpts, flows, contribution contexts, change analysis, test/runtime results, coverage & limitations. |
 | `index.html` + `app.js` + `styles.css` | Standalone interactive app (no server, no CDN). |
 | `data.js` | All report data (`window.CT_DATA`), including every language's UI strings. |
+| `viz.js` | Dependency-free SVG animation: system map, flow stage, count-up. Honors `prefers-reduced-motion`. |
 | `vendor/cytoscape.min.js` | Graph layout/interaction (MIT, vendored, ~430 KB). Only third-party dependency. |
 
-Sections of the HTML app: Overview · Architecture Explorer (module/file graph from real edges, filters, search, node
+Sections of the HTML app: Overview (animated hero with counted stats, detected storages, compact system map) ·
+Data Flow (system map from `dataflow.system_map`: layered columns client → entry → routing → middleware → handlers →
+services → data → library → storage; storage/external nodes with kind icons — database, cache, session, files,
+external API, queue, auth, email, cloud, views; animated packets per edge kind (request / imports-calls /
+data read-write), click for connections with evidence lines, pause, and "replay a flow" which moves a comet through
+the components a traced flow visits; storage cards with packages and call sites) · Architecture Explorer (module/file graph from real edges, filters, search, node
 details with example edges, drill-down) · Execution Flows (playback: play/pause/prev/next/restart/speed, keyboard:
-space/←/→; lane diagram; synchronized source with highlighted line; narration from `flow-notes`; outcomes) · Code
+space/←/→; animated request-journey stage — packet moves client → file → callee file / storage and back, green
+on success, red on failure, "play up to here" per outcome; synchronized source with highlighted line; narration from `flow-notes`; outcomes) · Code
 Evidence (file tree, syntax highlighting, `#/code/<path>:<start>-<end>` deep links, symbols with callers/callees,
 imports/importers) · Learning Center (levels, explanations with evidence blocks + staleness badges, concepts,
 interactive checkpoints, learning path) · Contribution Center (coverage tables, callers, tests, routes, branch

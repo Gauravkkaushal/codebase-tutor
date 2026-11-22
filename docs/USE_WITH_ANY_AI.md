@@ -39,7 +39,7 @@ Open the project you want to understand, then:
 | Claude Code | `/codebase-tutor how does login work here?` |
 | Google Antigravity | `/codebase-tutor explain the architecture` |
 | OpenAI Codex | `$codebase-tutor trace POST /api/orders` (Codex invokes skills with `$`, or pick it from `/skills`) |
-| OpenCode | `/codebase-tutor what did my last change break?` (or just ask; the agent loads the skill itself) |
+| OpenCode | Just ask, naming the skill: `use codebase-tutor: what did my last change break?`. OpenCode loads skills through its skill tool when the request matches; it does not create a `/codebase-tutor` slash command for skills. |
 | DeepSeek | Run DeepSeek inside Claude Code or OpenCode (below), then use that tool's syntax |
 
 The text after the skill name is the task. With no task (`/codebase-tutor` alone) it scans the repo and gives an

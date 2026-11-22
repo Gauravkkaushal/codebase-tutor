@@ -12,8 +12,10 @@ Google Antigravity, OpenCode and with DeepSeek models (Agent Skills format): typ
   source lines.
 - Every claim carries a verification level: *verified in source*, *structurally inferred*, *test verified*,
   *runtime observed*, *partially verified*, *not verified*.
-- A standalone interactive HTML report (architecture graph, flow playback, code evidence, learning center,
-  contribution center, change analysis, simulation lab) in **English, हिन्दी and Hinglish**.
+- A standalone interactive HTML report in **English, हिन्दी and Hinglish**: an animated overview, a **system map**
+  (client → entry → routing → handlers → services → data → databases, caches, queues and external APIs, with
+  moving packets and source evidence on every connection), flow replay on that map, an animated request-journey
+  player, architecture graph, code evidence, learning center, contribution center, change analysis and simulation lab.
 
 ## Install (once) — works in Claude Code, Codex, Antigravity, OpenCode, DeepSeek
 
@@ -70,7 +72,7 @@ python scripts/ct.py -C /path/to/repo report --lang hinglish     # -> .codebase-
 | `assets/report/` | HTML/CSS/JS report app + vendored Cytoscape.js (MIT) |
 | `adapters/` | Install/permission notes per agent |
 | `docs/` | Product spec, technical architecture, competitor analysis, roadmap, validation results |
-| `tests/` | 28 automated tests with fixture repos (incl. a real-browser report test) + `acceptance_test.py` (Definition of Done, run against an Express clone) |
+| `tests/` | 34 automated tests with fixture repos (incl. a real-browser report test) + `acceptance_test.py` (Definition of Done, run against an Express clone) |
 
 ## Safety model
 

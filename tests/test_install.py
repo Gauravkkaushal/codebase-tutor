@@ -21,7 +21,7 @@ def test_install_all_user_scope(tmp_path):
         assert (skill / "SKILL.md").exists() and (skill / "scripts" / "ct.py").exists()
         assert not (skill / "tests").exists()
         out = subprocess.run([sys.executable, str(skill / "scripts" / "ct.py"), "--version"], capture_output=True, text=True)
-        assert out.stdout.strip() == "0.2.0"
+        assert out.stdout.strip() == "0.3.0"
     assert "/codebase-tutor <task>" in r.stdout and "$codebase-tutor <task>" in r.stdout
 
 
