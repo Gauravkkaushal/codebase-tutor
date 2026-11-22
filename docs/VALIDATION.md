@@ -91,3 +91,12 @@ A weighted total is deliberately **not** reported because one category is unmeas
   against `ct trace` + manual key), tests identified, change correctness (tests pass), and an explain-back interview.
 - **Inside Codex and Antigravity**: install layouts follow their docs, but the skill was exercised only through the CLI here.
 - **Windows/macOS**: written to be portable (pathlib, no shell-specific code) but only run on Linux.
+
+## 9. Acceptance run on the user's computer (2026-11-21)
+
+`acceptance_test.py` (Definition of Done, 18 points + approval gate + safety) against a fresh expressjs/express
+clone @ 43fca52, in the Claude desktop app's Linux workspace on the user's machine (Python 3.10): **20/20 passed**,
+including real mocha runs (16 + 10 tests passed) and a runtime trace. Agent-level test: two questions (English,
+Hinglish) answered via the skill; all 25 citations verified by `ct verify --file` (0 problems). Bug found and fixed:
+same-line call/return ordering in flows. Pending: the user's own verification checklist (`VERIFY-CHECKLIST.md`) and a
+run on native Windows Python.
