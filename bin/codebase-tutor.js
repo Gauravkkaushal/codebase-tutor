@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Codebase Tutor launcher for npx.
-//   npx codebase-tutor install --agent claude|codex|antigravity [--scope user|project] [--project DIR]
+//   npx codebase-tutor install --agent all   (or claude | codex | antigravity | opencode | deepseek)
 //   npx codebase-tutor <engine command...>      e.g.  npx codebase-tutor -C ./my-repo scan
 // Requires Python 3.9+ on PATH (python3, python, or the Windows "py" launcher).
 const { spawnSync } = require('child_process');
@@ -25,7 +25,7 @@ if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
   console.log(`Codebase Tutor — evidence-backed codebase learning skill
 
 Usage:
-  npx codebase-tutor install --agent claude|codex|antigravity [--scope user|project] [--project DIR] [--force]
+  npx codebase-tutor install --agent all|claude|codex|antigravity|opencode|deepseek [--scope user|project] [--force]
   npx codebase-tutor -C <repo> scan | overview | trace "POST /login" --text | report --lang hinglish | ...
   npx codebase-tutor --version
 

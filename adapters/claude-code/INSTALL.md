@@ -12,8 +12,7 @@ pip install -r ~/.claude/skills/codebase-tutor/requirements.txt         # tree-s
 Use `--link` to symlink a git checkout instead of copying (updates with `git pull`).
 
 ## Invoke
-Ask naturally ("explain this repository", "how does login work here?", "what did my change break?") or type
-`/codebase-tutor`. Claude loads `SKILL.md`, then reads `references/*.md` on demand.
+Type `/codebase-tutor <task>` (e.g. `/codebase-tutor how does login work here?`) or just ask naturally. The text after the command reaches the skill as its task. DeepSeek: see `docs/USE_WITH_ANY_AI.md`. Claude loads `SKILL.md`, then reads `references/*.md` on demand.
 
 ## Permissions
 The skill runs `python <skill>/scripts/ct.py …` through Bash. Read-only commands (`scan`, `overview`, `symbol`,

@@ -2,9 +2,9 @@
 name: codebase-tutor
 description: Evidence-backed interactive tutor for unfamiliar or very large repositories. Builds a persistent, incremental index (Tree-sitter/AST), then explains architecture, traces real execution flows with exact file:line evidence, prepares safe open-source contributions, analyses the impact of code changes, runs tests only with approval, and generates an interactive HTML report (English, Hindi, Hinglish). Use when someone wants to understand, explore, onboard to, trace, contribute to, or verify changes in a codebase — e.g. "explain this repo", "how does login work here", "trace this request", "which files handle X", "help me fix issue #123", "what did my change break", "make a report/diagram of this project". Not for generic language tutorials unrelated to a repository.
 license: MIT
-compatibility: Agent Skills compatible (Claude Code, OpenAI Codex, Google Antigravity). Needs shell + Python 3.9+ and git. Tree-sitter wheels (pip install -r requirements.txt) for JS/TS; Python analysis uses the stdlib.
+compatibility: Any Agent Skills tool with a shell - Claude Code, OpenAI Codex, Google Antigravity, OpenCode, and DeepSeek models through Claude Code or OpenCode. Needs Python 3.9+ and git. Tree-sitter wheels (pip install -r requirements.txt) for JS/TS; Python analysis uses the stdlib.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   homepage: "docs/PRODUCT_SPEC.md"
 ---
 
@@ -22,6 +22,36 @@ Two halves work together:
 `<skill>` below means the directory containing this file. Run commands as
 `python <skill>/scripts/ct.py -C <repo> <command>` (output is JSON unless `--text`).
 Read a file in `references/` only when you enter the mode that needs it.
+
+## How you were invoked — the task comes with the command
+
+The user starts this skill by typing its name followed by a task, in whatever syntax their tool uses:
+`/codebase-tutor <task>` (Claude Code, Antigravity, OpenCode, DeepSeek via Claude Code or OpenCode) or
+`$codebase-tutor <task>` (Codex). The text after the skill name — shown to you as the rest of the user's
+message or as `ARGUMENTS:` — **is the task. Do it now**; do not reply with a menu or ask them to repeat it.
+
+1. **Find the skill folder.** It is the folder containing this `SKILL.md` (your tool usually shows the path).
+   If not, look in `~/.claude/skills/codebase-tutor`, `~/.agents/skills/codebase-tutor`,
+   `~/.gemini/config/skills/codebase-tutor`, `~/.config/opencode/skills/codebase-tutor`, or
+   `.claude/skills/`, `.agents/skills/` inside the project.
+2. **Pick the Python command** that works: `python` on Windows (or `py -3`), `python3` elsewhere.
+3. **Pick the repository**: the current working directory, unless the task names another path.
+4. **Route the task**, then follow the matching section below:
+
+| Task looks like | Do |
+|---|---|
+| *(empty)* | `scan` → `overview` → 5-line summary of purpose, stack, structure, entry points → offer the learning path (§3, Mode A) |
+| "explain / samjhao / architecture / overview / onboard me" | Mode A, then §3 for the most important flow |
+| "how does X work", "X kaise kaam karta hai", "trace", a route like `POST /login`, a function name | §3 core loop (`search` → `trace` → `evidence`) |
+| "who calls X", "where is X used", "which files handle X" | `symbol` / `callers` / `search`, cited |
+| issue URL, bug, "I want to add / change / fix …" | §5 contribution workflow |
+| "what did my change do / break", "review my changes" | §6 (`changes`) |
+| "run the tests", "verify", "does it work" | Mode G (approval first) |
+| "report", "diagram", "HTML", "document this repo" | §7 (`report`, after saving explanations/flows) |
+| a question in Hindi or Hinglish | same routing; answer in that language (§8) |
+
+Work through the task end to end in this turn; ask a question only if the task is genuinely ambiguous or needs
+approval (running code, installing packages).
 
 ## 0. Non-negotiable rules
 

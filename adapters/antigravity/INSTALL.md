@@ -2,21 +2,18 @@
 
 Antigravity skills are directories with a `SKILL.md` (YAML frontmatter `name`, `description`) and optional scripts and
 resources. Workspace skills live in `<workspace-root>/.agents/skills/<skill>/` (the older `.agent/skills/` is still
-read); global skills live under the user's Gemini/Antigravity config directory (documented as
-`~/.gemini/antigravity/skills/` for the IDE; newer docs for Antigravity 2.0 also mention `~/.gemini/config/skills/` —
-check your version's docs).
+read); global skills live in `~/.gemini/config/skills/<skill>/`, shared by the Antigravity App and CLI (the legacy
+`~/.gemini/antigravity/skills/` is still read).
 
 ## Install
 ```bash
 python scripts/install_skill.py --agent antigravity --scope project --project /path/to/workspace   # -> .agents/skills/codebase-tutor
-python scripts/install_skill.py --agent antigravity --scope user                                   # -> ~/.gemini/antigravity/skills/codebase-tutor
-python scripts/install_skill.py --agent antigravity --dest ~/.gemini/config/skills                  # Antigravity 2.0 global path
+python scripts/install_skill.py --agent antigravity --scope user                                   # -> ~/.gemini/config/skills/codebase-tutor (App + CLI)
 pip install -r <installed path>/requirements.txt
 ```
 
 ## Invoke
-The agent picks the skill from its description; you can also name it ("use codebase-tutor to …") or use the
-slash-command form your Antigravity surface offers.
+Type `/codebase-tutor <task>` — Antigravity turns every skill into a slash command — or ask naturally and the agent picks it from its description.
 
 ## Permissions
 Antigravity's terminal/auto-execution policy applies. Keep auto-execution off (or "request review") for commands

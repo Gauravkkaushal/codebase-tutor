@@ -1,8 +1,8 @@
 # Codebase Tutor
 
 An evidence-driven AI agent skill for understanding unfamiliar — including very large — repositories, preparing safe
-contributions, and verifying what a change actually did. Works with Claude Code, OpenAI Codex and Google Antigravity
-(Agent Skills format).
+contributions, and verifying what a change actually did. Works in Claude Code, OpenAI Codex,
+Google Antigravity, OpenCode and with DeepSeek models (Agent Skills format): type `/codebase-tutor <task>`.
 
 **Understand → Explore → Trace → Learn → Modify → Simulate → Verify → Compare → Understand again.**
 
@@ -15,30 +15,38 @@ contributions, and verifying what a change actually did. Works with Claude Code,
 - A standalone interactive HTML report (architecture graph, flow playback, code evidence, learning center,
   contribution center, change analysis, simulation lab) in **English, हिन्दी and Hinglish**.
 
-## Install
+## Install (once) — works in Claude Code, Codex, Antigravity, OpenCode, DeepSeek
 
 Requires Python 3.9+ (and Node only if you use `npx`).
 
 ```bash
-# Option 1 — skills CLI (installs into your agent's skills folder)
-npx skills add Gauravkkaushal/codebase-tutor
-
-# Option 2 — this repo's own installer via npx (after the npm package is published)
-npx codebase-tutor install --agent claude        # or: --agent codex | --agent antigravity, --scope project
-
-# Option 3 — from a clone
 git clone https://github.com/Gauravkkaushal/codebase-tutor.git
 cd codebase-tutor
-python scripts/install_skill.py --agent claude --scope user
+python scripts/install_skill.py --agent all      # Claude Code, Codex, Antigravity (+ OpenCode reads these too)
+python -m pip install -r requirements.txt         # precise JS/TS parsing
 
-# Then, once: precise JS/TS parsing (Python analysis needs nothing extra)
-pip install -r requirements.txt
+# alternatives
+npx skills add Gauravkkaushal/codebase-tutor      # open skills CLI
+npx codebase-tutor install --agent all            # after the npm package is published
 ```
 
-## Quick start
+## Use it
+
+Open any project in your AI tool and type the skill name followed by the task:
+
+| Tool | Command |
+|---|---|
+| Claude Code · Antigravity · OpenCode | `/codebase-tutor how does login work here?` |
+| OpenAI Codex | `$codebase-tutor how does login work here?` |
+| DeepSeek | run it inside Claude Code or OpenCode, then the same command |
+
+`/codebase-tutor` alone gives an overview and a learning path. Full guide, DeepSeek setup and troubleshooting:
+[`docs/USE_WITH_ANY_AI.md`](docs/USE_WITH_ANY_AI.md).
+
+## The engine on its own (optional)
 
 ```bash
-# Use it from your agent ("explain this repository"), or run the engine directly:
+# The AI runs these for you; you can also run them directly:
 python scripts/ct.py -C /path/to/repo scan
 python scripts/ct.py -C /path/to/repo overview
 python scripts/ct.py -C /path/to/repo trace "POST /login" --text

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Copy (or symlink) Codebase Tutor into an agent's skill directory.
+"""Install Codebase Tutor into one or more AI coding tools, so `/codebase-tutor <task>` works there.
 
 Examples:
-  python scripts/install_skill.py --agent claude --scope user
-  python scripts/install_skill.py --agent codex --scope project --project ~/code/myrepo
-  python scripts/install_skill.py --agent antigravity --scope project --project . --link
+  python scripts/install_skill.py --agent all                      # every supported tool, user-wide
+  python scripts/install_skill.py --agent claude                   # Claude Code (also DeepSeek via Claude Code)
+  python scripts/install_skill.py --agent codex                    # OpenAI Codex  ($codebase-tutor)
+  python scripts/install_skill.py --agent antigravity              # Google Antigravity
+  python scripts/install_skill.py --agent opencode                 # OpenCode (also DeepSeek via OpenCode)
+  python scripts/install_skill.py --agent all --scope project --project ~/code/myrepo
+  python scripts/install_skill.py --agent all --uninstall
 """
 import argparse
 import shutil
@@ -13,42 +17,94 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 NAME = "codebase-tutor"
+HOME = Path.home()
+
+# agent: (user-scope skills dir, project-scope dir relative to the project root, how the user invokes it)
 TARGETS = {
-    # agent: (user-scope dir, project-scope dir relative to project root)
-    "claude": (Path.home() / ".claude" / "skills", Path(".claude") / "skills"),
-    "codex": (Path.home() / ".codex" / "skills", Path(".agents") / "skills"),
-    "antigravity": (Path.home() / ".gemini" / "antigravity" / "skills", Path(".agents") / "skills"),
+    "claude": (HOME / ".claude" / "skills", Path(".claude") / "skills", "/codebase-tutor <task>"),
+    "codex": (HOME / ".agents" / "skills", Path(".agents") / "skills", "$codebase-tutor <task>   (or /skills)"),
+    "antigravity": (HOME / ".gemini" / "config" / "skills", Path(".agents") / "skills", "/codebase-tutor <task>"),
+    "opencode": (HOME / ".config" / "opencode" / "skills", Path(".opencode") / "skills", "/codebase-tutor <task>  (or ask; skill tool)"),
 }
-IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".pytest_cache", "tests", ".codebase-tutor")
+ALIASES = {"claude-code": "claude", "deepseek": "claude", "gemini": "antigravity", "openai": "codex"}
+# `all` installs to distinct folders only: OpenCode already reads ~/.claude/skills and ~/.agents/skills,
+# so a separate OpenCode copy would just duplicate the skill name.
+ALL = ["claude", "codex", "antigravity"]
+IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".pytest_cache", "tests", ".codebase-tutor",
+                                "node_modules", "*.bundle")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--agent", choices=sorted(TARGETS), required=True)
-    ap.add_argument("--scope", choices=["user", "project"], default="user")
-    ap.add_argument("--project", default=".", help="project root for --scope project")
-    ap.add_argument("--dest", help="override destination skills directory")
-    ap.add_argument("--link", action="store_true", help="symlink instead of copy (keeps one source of truth)")
-    ap.add_argument("--force", action="store_true", help="replace an existing installation")
-    a = ap.parse_args()
-    user_dir, proj_rel = TARGETS[a.agent]
-    base = Path(a.dest).expanduser() if a.dest else (user_dir if a.scope == "user" else Path(a.project).expanduser().resolve() / proj_rel)
+def install_one(agent: str, scope: str, project: Path, link: bool, force: bool) -> str:
+    user_dir, proj_rel, how = TARGETS[agent]
+    base = user_dir if scope == "user" else project / proj_rel
     dest = base / NAME
+    if dest.resolve() == SKILL_DIR:
+        return f"[{agent}] already running from {dest} (nothing to do) — use: {how}"
     if dest.exists() or dest.is_symlink():
-        if not a.force:
-            print(f"{dest} exists; re-run with --force to replace it", file=sys.stderr)
-            return 1
+        if not force:
+            return f"[{agent}] {dest} exists — re-run with --force to update it"
         if dest.is_symlink() or dest.is_file():
             dest.unlink()
         else:
             shutil.rmtree(dest)
     base.mkdir(parents=True, exist_ok=True)
-    if a.link:
+    if link:
         dest.symlink_to(SKILL_DIR, target_is_directory=True)
     else:
         shutil.copytree(SKILL_DIR, dest, ignore=IGNORE)
-    print(f"installed {NAME} -> {dest}")
-    print("next: pip install -r", dest / "requirements.txt", "(tree-sitter for JS/TS; Python analysis needs nothing extra)")
+    if not (dest / "SKILL.md").exists():
+        return f"[{agent}] FAILED: {dest / 'SKILL.md'} missing after install"
+    return f"[{agent}] installed -> {dest}   use: {how}"
+
+
+def uninstall_one(agent: str, scope: str, project: Path) -> str:
+    user_dir, proj_rel, _ = TARGETS[agent]
+    dest = (user_dir if scope == "user" else project / proj_rel) / NAME
+    if not (dest.exists() or dest.is_symlink()):
+        return f"[{agent}] not installed at {dest}"
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    else:
+        shutil.rmtree(dest)
+    return f"[{agent}] removed {dest}"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--agent", required=True, help="all | claude | codex | antigravity | opencode | deepseek (comma-separated ok)")
+    ap.add_argument("--scope", choices=["user", "project"], default="user")
+    ap.add_argument("--project", default=".", help="project root for --scope project")
+    ap.add_argument("--link", action="store_true", help="symlink instead of copy (one source of truth)")
+    ap.add_argument("--force", action="store_true", help="replace an existing installation (use this to update)")
+    ap.add_argument("--uninstall", action="store_true")
+    a = ap.parse_args()
+    wanted = []
+    for part in a.agent.lower().split(","):
+        part = part.strip()
+        if part == "all":
+            wanted += list(TARGETS) if a.uninstall else ALL
+        elif part in TARGETS or part in ALIASES:
+            wanted.append(ALIASES.get(part, part))
+        else:
+            print(f"unknown agent '{part}'. choose from: all, {', '.join(TARGETS)}, deepseek", file=sys.stderr)
+            return 2
+    wanted = list(dict.fromkeys(wanted))
+    project = Path(a.project).expanduser().resolve()
+    if a.scope == "project":
+        # Codex, Antigravity and OpenCode all read <project>/.agents/skills — install it once.
+        seen, dedup = set(), []
+        for ag in wanted:
+            rel = TARGETS[ag][1]
+            if rel not in seen:
+                seen.add(rel)
+                dedup.append(ag)
+        wanted = dedup
+    for ag in wanted:
+        print(uninstall_one(ag, a.scope, project) if a.uninstall else install_one(ag, a.scope, project, a.link, a.force))
+    if not a.uninstall:
+        print("\nOnce per machine, for precise JS/TS parsing:  python -m pip install -r "
+              f"\"{SKILL_DIR / 'requirements.txt'}\"")
+        print("Restart your AI tool, open a project, and type the command shown above.")
     return 0
 
 
