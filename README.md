@@ -15,12 +15,29 @@ contributions, and verifying what a change actually did. Works with Claude Code,
 - A standalone interactive HTML report (architecture graph, flow playback, code evidence, learning center,
   contribution center, change analysis, simulation lab) in **English, हिन्दी and Hinglish**.
 
+## Install
+
+Requires Python 3.9+ (and Node only if you use `npx`).
+
+```bash
+# Option 1 — skills CLI (installs into your agent's skills folder)
+npx skills add Gauravkkaushal/codebase-tutor
+
+# Option 2 — this repo's own installer via npx (after the npm package is published)
+npx codebase-tutor install --agent claude        # or: --agent codex | --agent antigravity, --scope project
+
+# Option 3 — from a clone
+git clone https://github.com/Gauravkkaushal/codebase-tutor.git
+cd codebase-tutor
+python scripts/install_skill.py --agent claude --scope user
+
+# Then, once: precise JS/TS parsing (Python analysis needs nothing extra)
+pip install -r requirements.txt
+```
+
 ## Quick start
 
 ```bash
-pip install -r requirements.txt                      # tree-sitter for JS/TS (Python needs nothing)
-python scripts/install_skill.py --agent claude --scope user   # or codex / antigravity, --scope project
-
 # Use it from your agent ("explain this repository"), or run the engine directly:
 python scripts/ct.py -C /path/to/repo scan
 python scripts/ct.py -C /path/to/repo overview
@@ -40,11 +57,12 @@ python scripts/ct.py -C /path/to/repo report --lang hinglish     # -> .codebase-
 |---|---|
 | `SKILL.md` | The canonical, agent-independent skill instructions |
 | `references/` | Mode playbooks loaded on demand (evidence rules, architecture, learning, contribution, change intelligence, simulation, reports, large repos, CLI, explanation schema) |
+| `bin/codebase-tutor.js`, `package.json` | `npx codebase-tutor …` launcher (installer + engine) |
 | `scripts/ct.py`, `scripts/codebase_tutor/` | The engine (inventory, detection, parsers, resolution, store, evidence, flows, context, snapshots, changes, testing, runtime tracers, explanations, report) |
 | `assets/report/` | HTML/CSS/JS report app + vendored Cytoscape.js (MIT) |
 | `adapters/` | Install/permission notes per agent |
 | `docs/` | Product spec, technical architecture, competitor analysis, roadmap, validation results |
-| `tests/` | 28 automated tests with fixture repos (incl. a real-browser report test) |
+| `tests/` | 28 automated tests with fixture repos (incl. a real-browser report test) + `acceptance_test.py` (Definition of Done, run against an Express clone) |
 
 ## Safety model
 
