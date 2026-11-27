@@ -24,7 +24,7 @@ TARGETS = {
     "claude": (HOME / ".claude" / "skills", Path(".claude") / "skills", "/codebase-tutor <task>"),
     "codex": (HOME / ".agents" / "skills", Path(".agents") / "skills", "$codebase-tutor <task>   (or /skills)"),
     "antigravity": (HOME / ".gemini" / "config" / "skills", Path(".agents") / "skills", "/codebase-tutor <task>"),
-    "opencode": (HOME / ".config" / "opencode" / "skills", Path(".opencode") / "skills", "/codebase-tutor <task>  (or ask; skill tool)"),
+    "opencode": (HOME / ".config" / "opencode" / "skills", Path(".opencode") / "skills", "name codebase-tutor in your prompt (skill tool)"),
 }
 ALIASES = {"claude-code": "claude", "deepseek": "claude", "gemini": "antigravity", "openai": "codex"}
 # `all` installs to distinct folders only: OpenCode already reads ~/.claude/skills and ~/.agents/skills,
@@ -40,6 +40,9 @@ def install_one(agent: str, scope: str, project: Path, link: bool, force: bool) 
     dest = base / NAME
     if dest.resolve() == SKILL_DIR:
         return f"[{agent}] already running from {dest} (nothing to do) — use: {how}"
+    if not link and dest.resolve().is_relative_to(SKILL_DIR):
+        # copytree would recurse into its own destination
+        return f"[{agent}] FAILED: {dest} is inside the skill source {SKILL_DIR}; use --link or another --project"
     if dest.exists() or dest.is_symlink():
         if not force:
             return f"[{agent}] {dest} exists — re-run with --force to update it"
@@ -99,13 +102,16 @@ def main() -> int:
                 seen.add(rel)
                 dedup.append(ag)
         wanted = dedup
+    failed = False
     for ag in wanted:
-        print(uninstall_one(ag, a.scope, project) if a.uninstall else install_one(ag, a.scope, project, a.link, a.force))
+        msg = uninstall_one(ag, a.scope, project) if a.uninstall else install_one(ag, a.scope, project, a.link, a.force)
+        print(msg)
+        failed |= "FAILED" in msg or "re-run with --force" in msg
     if not a.uninstall:
         print("\nOnce per machine, for precise JS/TS parsing:  python -m pip install -r "
               f"\"{SKILL_DIR / 'requirements.txt'}\"")
         print("Restart your AI tool, open a project, and type the command shown above.")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

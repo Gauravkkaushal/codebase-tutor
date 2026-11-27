@@ -133,7 +133,7 @@ def build_context(store, root, target: str, task: str | None = None, save: bool 
         {"area": "Edge cases", "status": "Needs agent review", "basis": "engine lists branch conditions; the agent must read and reason about them"},
     ]
     ctx = {
-        "id": re.sub(r"[^A-Za-z0-9]+", "-", target).strip("-").lower()[:80],
+        "id": re.sub(r"[^A-Za-z0-9]+", "-", target).strip("-").lower()[:80] or "context",
         "target": target, "task": task, "kind": kind, "file": file_target, "generated_at": time.time(),
         "snapshot": store.get_meta("last_snapshot"),
         "implementation": impl, "direct_callers": direct_callers[:60], "transitive_callers": trans_syms[:60],

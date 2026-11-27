@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from collections import Counter
@@ -32,6 +33,28 @@ def _map_symbol(store, file: str, name: str):
     return row
 
 
+def _unique_dir(base: Path, prefix: str) -> tuple[str, Path]:
+    base.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime(f"{prefix}%Y%m%d-%H%M%S", time.gmtime())
+    n = 1
+    while True:
+        cand_id = stamp if n == 1 else f"{stamp}-{n}"
+        cand = base / cand_id
+        try:
+            cand.mkdir(exist_ok=False)
+            return cand_id, cand
+        except FileExistsError:
+            n += 1
+
+
+def _resolve_cmd(cmd: list) -> list:
+    if os.name == "nt" and cmd and not Path(cmd[0]).exists():
+        found = shutil.which(cmd[0])
+        if found:
+            return [found, *cmd[1:]]
+    return cmd
+
+
 def run_traced(store, root: Path, cmd: list, approved: bool, lang: str = "auto", timeout: int = 0, label: str | None = None) -> dict:
     root = Path(root).resolve()
     if not cmd:
@@ -41,8 +64,7 @@ def run_traced(store, root: Path, cmd: list, approved: bool, lang: str = "auto",
                 "message": "Not executed. Runtime tracing runs repository code; ask the user, then re-run with --yes."}
     lang = _detect_lang(cmd) if lang == "auto" else lang
     timeout = timeout or int(load_config(root).get("tests", {}).get("timeout_seconds", 600))
-    rid = time.strftime("R%Y%m%d-%H%M%S", time.gmtime())
-    out_dir = data_dir(root) / "runs" / "runtime" / rid
+    rid, out_dir = _unique_dir(data_dir(root) / "runs" / "runtime", "R")
     out_dir.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env["CT_TRACE_ROOT"] = str(root)
@@ -50,10 +72,12 @@ def run_traced(store, root: Path, cmd: list, approved: bool, lang: str = "auto",
     if lang == "python":
         env["PYTHONPATH"] = str(HERE / "py") + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     else:
-        env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + f" --require {shlex.quote(str(HERE / 'node_hook.js'))}").strip()
+        hook = (HERE / "node_hook.js").as_posix()
+        req = f'"{hook}"' if any(c.isspace() for c in hook) else hook
+        env["NODE_OPTIONS"] = (env.get("NODE_OPTIONS", "") + f" --require {req}").strip()
     t0 = time.time()
     try:
-        proc = subprocess.run(cmd, cwd=str(root), env=env, capture_output=True, timeout=timeout)
+        proc = subprocess.run(_resolve_cmd(list(cmd)), cwd=str(root), env=env, capture_output=True, timeout=timeout)
         code, status = proc.returncode, "completed"
         stdout, stderr = proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
     except subprocess.TimeoutExpired as e:

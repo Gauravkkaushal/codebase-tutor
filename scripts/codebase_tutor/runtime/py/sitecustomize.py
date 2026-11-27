@@ -22,7 +22,7 @@ def _relpath(fn):
     if r is None:
         real = os.path.realpath(fn) if fn and not fn.startswith("<") else ""
         ok = real.startswith(_ROOT) and "site-packages" not in real and not real.startswith(_skip) and not real.startswith(_HERE)
-        r = os.path.relpath(real, _ROOT) if ok else ""
+        r = os.path.relpath(real, _ROOT).replace(os.sep, "/") if ok else ""
         _cache[fn] = r
     return r
 

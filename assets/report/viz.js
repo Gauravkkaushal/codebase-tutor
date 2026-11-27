@@ -174,14 +174,16 @@ window.CTViz = (function () {
     }
     function select(id) { selected = id; focus(id); Object.entries(nodeEls).forEach(([nid, g]) => g.classList.toggle('sel', nid === id)); }
     // comet replay along a sequence of node ids
-    let cometTimer = null;
+    let cometTimer = null, replayTimeout = null, replayGen = 0;
     function replay(seq, onStep, onDone) {
       stopReplay();
+      const gen = replayGen;
       gComet.innerHTML = '';
       const comet = el('circle', { r: compact ? 5 : 8, class: 'sm-comet', filter: `url(#ct-glow${compact ? 'c' : ''})` }, gComet);
       const trail = el('path', { class: 'sm-trail', d: '' }, gComet);
       let i = 0, trailD = '';
       const hop = () => {
+        if (gen !== replayGen) return;
         if (i >= seq.length - 1) { if (onDone) onDone(); cometTimer = null; return; }
         const a = pos[seq[i]], b = pos[seq[i + 1]];
         const ex = edgeEls.find((x) => x.e.source === seq[i] && x.e.target === seq[i + 1]) || edgeEls.find((x) => x.e.source === seq[i + 1] && x.e.target === seq[i]);
@@ -191,20 +193,33 @@ window.CTViz = (function () {
         if (nodeEls[seq[i + 1]]) nodeEls[seq[i + 1]].classList.add('pulse');
         if (onStep) onStep(i + 1);
         const step = (now) => {
+          if (gen !== replayGen) return;
           const u = Math.min(1, (now - t0) / dur);
           const pt = pathEl.getPointAtLength((reverse ? 1 - u : u) * len);
           comet.setAttribute('cx', pt.x); comet.setAttribute('cy', pt.y);
           if (u < 1) { cometTimer = requestAnimationFrame(step); return; }
           trailD += (trailD ? ' ' : '') + pathEl.getAttribute('d').replace(/^M/, 'M');
           trail.setAttribute('d', trailD);
-          setTimeout(() => { if (nodeEls[seq[i + 1]]) nodeEls[seq[i + 1]].classList.remove('pulse'); i++; hop(); }, reduceMotion ? 0 : 160);
+          replayTimeout = setTimeout(() => {
+            replayTimeout = null;
+            if (gen !== replayGen) return;
+            if (nodeEls[seq[i + 1]]) nodeEls[seq[i + 1]].classList.remove('pulse');
+            i++; hop();
+          }, reduceMotion ? 0 : 160);
         };
         cometTimer = requestAnimationFrame(step);
       };
       if (pos[seq[0]]) { comet.setAttribute('cx', pos[seq[0]].x); comet.setAttribute('cy', pos[seq[0]].y); }
       hop();
     }
-    function stopReplay() { if (cometTimer) cancelAnimationFrame(cometTimer); cometTimer = null; }
+    function stopReplay() {
+      replayGen++;
+      if (cometTimer) cancelAnimationFrame(cometTimer);
+      cometTimer = null;
+      if (replayTimeout) clearTimeout(replayTimeout);
+      replayTimeout = null;
+      Object.values(nodeEls).forEach((g) => g.classList.remove('pulse'));
+    }
     return {
       play, pause, isRunning: () => running, focus, select, replay, stopReplay, has: (id) => !!pos[id],
       destroy() { pause(); stopReplay(); }

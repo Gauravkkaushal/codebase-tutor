@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -35,7 +36,7 @@ def detect_runners(root: Path, store) -> dict:
     for name in ("jest", "vitest", "mocha", "ava", "tap"):
         if name in deps or re.search(rf"\b{name}\b", script):
             runners.append({"runner": name, "ecosystem": "node", "script": script or None,
-                            "installed": (nm / ".bin" / name).exists(),
+                            "installed": (nm / ".bin" / name).exists() or (nm / ".bin" / f"{name}.cmd").exists(),
                             "evidence": "package.json scripts.test / devDependencies"})
     if re.search(r"\bnode\s+--test\b", script):
         runners.append({"runner": "node-test", "ecosystem": "node", "script": script, "installed": True, "evidence": "scripts.test"})
@@ -100,7 +101,7 @@ def plan(store, root: Path, target: str) -> dict:
     commands = []
     for r in det["runners"]:
         langs = ("python",) if r["ecosystem"] == "python" else ("javascript", "typescript", "tsx")
-        sel = [f for f in files if store.one("SELECT lang FROM files WHERE path=?", (f,))[0] in langs]
+        sel = [f for f in files if (row := store.one("SELECT lang FROM files WHERE path=?", (f,))) and row[0] in langs]
         if not sel:
             continue
         base = _base_command(root, r["runner"], r.get("script"))
@@ -159,7 +160,7 @@ def _parse(kind: str, path: Path, root: Path) -> list:
     elif kind == "jest":
         data = json.loads(path.read_text(encoding="utf-8"))
         for tr in data.get("testResults", []):
-            f = os.path.relpath(tr.get("name") or tr.get("testFilePath") or "", root)
+            f = os.path.relpath(tr.get("name") or tr.get("testFilePath") or "", root).replace(os.sep, "/")
             for a in tr.get("assertionResults", []):
                 st = {"passed": "passed", "failed": "failed"}.get(a.get("status"), "skipped")
                 tests.append({"name": a.get("fullName") or a.get("title"), "file": f, "status": st,
@@ -172,7 +173,7 @@ def _parse(kind: str, path: Path, root: Path) -> list:
             key = (t.get("fullTitle"), t.get("file"))
             st = "failed" if key in failed else "skipped" if key in pending else "passed"
             err = t.get("err") or {}
-            tests.append({"name": t.get("fullTitle"), "file": os.path.relpath(t.get("file") or "", root) if t.get("file") else None,
+            tests.append({"name": t.get("fullTitle"), "file": os.path.relpath(t.get("file") or "", root).replace(os.sep, "/") if t.get("file") else None,
                           "status": st, "duration_ms": t.get("duration"), "message": (err.get("message") or "")[:500] or None})
     return tests
 
@@ -186,14 +187,29 @@ def run(store, root: Path, cmd: list, approved: bool, timeout: int = 0, label: s
                 "message": "Not executed. Running tests executes repository code; ask the user, then re-run with --yes."}
     cfg = load_config(root)
     timeout = timeout or int(cfg.get("tests", {}).get("timeout_seconds", 600))
-    rid = time.strftime("T%Y%m%d-%H%M%S", time.gmtime())
-    out_dir = data_dir(root) / "runs" / "tests" / rid
-    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("T%Y%m%d-%H%M%S", time.gmtime())
+    base_dir = data_dir(root) / "runs" / "tests"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while True:
+        cand_id = stamp if n == 1 else f"{stamp}-{n}"
+        out_dir = base_dir / cand_id
+        try:
+            out_dir.mkdir(exist_ok=False)
+            rid = cand_id
+            break
+        except FileExistsError:
+            n += 1
     full, kind, report = _augment(list(cmd), out_dir)
+    exec_cmd = list(full)
+    if os.name == "nt" and exec_cmd and not Path(exec_cmd[0]).exists():
+        found = shutil.which(exec_cmd[0])
+        if found:
+            exec_cmd[0] = found
     gi = git_info(root)
     t0 = time.time()
     try:
-        proc = subprocess.run(full, cwd=str(root), capture_output=True, timeout=timeout)
+        proc = subprocess.run(exec_cmd, cwd=str(root), capture_output=True, timeout=timeout)
         code, status = proc.returncode, None
         stdout, stderr = proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
     except subprocess.TimeoutExpired as e:

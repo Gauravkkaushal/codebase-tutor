@@ -62,6 +62,8 @@ def test_evidence_exact_redaction_and_bounds(js_repo, run_ct):
     assert "refusing" in sec["error"]
     from codebase_tutor.evidence import redact_line
     assert redact_line('const password = "hunter2hunter2";')[0] == 'const password = "«redacted»";'
+    assert redact_line('fetch("http://localhost:3000/api/items?page=2&token=live-secret-value")')[0] == \
+        'fetch("http://localhost:3000/api/items?page=2&token=«redacted»")'
 
 
 def test_incremental_scan_reparses_only_changed(js_repo, run_ct):
@@ -268,3 +270,52 @@ def test_mern_frontend_calls_routes_and_models_hit_database(mern_repo, run_ct):
     dbs = [s for s in flow["steps"] if s.get("db_op")]
     assert [(s["db_op"], s["db_model"]) for s in dbs] == [("write", "Note")]
     assert "error" not in run_ct(mern_repo, "trace", "GET /api/notes/")                       # trailing slash tolerated
+
+
+def test_http_call_method_scoped_and_same_line_storage_preserved(mern_repo, run_ct):
+    (mern_repo / "client/src/pages/Extra.jsx").write_text(
+        'import axios from "axios";\n'
+        'import fs from "fs";\n'
+        "export function check() {\n"
+        '  fetch("/api/notes");\n'
+        '  fetch("/api/notes/add", {\n'
+        '    method: "POST"\n'
+        "  });\n"
+        '  fetch(/* 1) keep */ "/api/notes/add", { method: "POST" });\n'
+        '  fetch("/api/notes/add", { headers: { "X-Pattern": /\\)/.source }, method: "POST" });\n'
+        '  axios.post("http://localhost:5000/api/notes/add", fs.readFileSync("note.json"));\n'
+        "}\n"
+    )
+    run_ct(mern_repo, "scan", "--quiet")
+    from codebase_tutor.store import Store
+    from codebase_tutor.access import AccessIndex, _call_slice
+    from codebase_tutor.dataflow import system_map
+    st = Store(mern_repo / ".codebase-tutor" / "knowledge" / "index.db")
+    calls = [c for c in AccessIndex(st, mern_repo).http_calls() if c["file"] == "client/src/pages/Extra.jsx"]
+    by_line = {c["line"]: c["method"] for c in calls}
+    assert by_line == {4: "GET", 5: "POST", 8: "POST", 9: "POST", 10: "POST"}
+    assert '"/users"' in _call_slice(['requests.get(  # ) ignore', '    "/users")'], 1, "requests.get", is_py=True)
+    sm = system_map(st, root=mern_repo)
+    assert any(n["id"] == "@File system" for n in sm["nodes"])
+
+
+def test_same_line_catch_ordered_before_handler_call_and_return(js_repo, run_ct):
+    (js_repo / "src/services/recover.js").write_text(
+        "function fallback(e) { return e; }\n"
+        "function risky() { try { return 1; } catch (err) { return fallback(err); } }\n"
+        "module.exports = { risky };\n"
+    )
+    run_ct(js_repo, "scan", "--quiet")
+    flow = run_ct(js_repo, "trace", "risky")
+    kinds = [s["kind"] for s in flow["steps"]]
+    assert kinds.index("catch") < kinds.index("call") < kinds.index("return", kinds.index("catch"))
+
+
+def test_evidence_blocks_traversal_and_case_variant_secrets(js_repo, run_ct):
+    run_ct(js_repo, "scan", "--quiet")
+    for bad in ("src/../.env", "./.env", ".env"):
+        res = run_ct(js_repo, "evidence", bad, "1", check=False)
+        assert "refusing" in res["error"], (bad, res)
+    from codebase_tutor.inventory import classify
+    assert classify(".ENV", 10)[1] == "secret"
+    assert classify("CREDENTIALS.JSON", 10)[1] == "secret"

@@ -24,8 +24,14 @@ Requires Python 3.9+ (and Node only if you use `npx`).
 ```bash
 git clone https://github.com/Gauravkkaushal/codebase-tutor.git
 cd codebase-tutor
+
+# Windows
 python scripts/install_skill.py --agent all      # Claude Code, Codex, Antigravity (+ OpenCode reads these too)
 python -m pip install -r requirements.txt         # precise JS/TS parsing
+
+# macOS / Linux
+python3 scripts/install_skill.py --agent all
+python3 -m pip install -r requirements.txt
 
 # alternatives
 npx skills add Gauravkkaushal/codebase-tutor      # open skills CLI
@@ -38,9 +44,10 @@ Open any project in your AI tool and type the skill name followed by the task:
 
 | Tool | Command |
 |---|---|
-| Claude Code · Antigravity · OpenCode | `/codebase-tutor how does login work here?` |
+| Claude Code · Antigravity | `/codebase-tutor how does login work here?` |
 | OpenAI Codex | `$codebase-tutor how does login work here?` |
-| DeepSeek | run it inside Claude Code or OpenCode, then the same command |
+| OpenCode | Name the skill in your prompt, e.g. `use codebase-tutor: how does login work here?` (OpenCode loads skills via its `skill` tool; it does not create a `/codebase-tutor` slash command) |
+| DeepSeek | run it inside Claude Code or OpenCode, then use that tool's syntax |
 
 `/codebase-tutor` alone gives an overview and a learning path. Full guide, DeepSeek setup and troubleshooting:
 [`docs/USE_WITH_ANY_AI.md`](docs/USE_WITH_ANY_AI.md).
