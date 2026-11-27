@@ -14,7 +14,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from .evidence import EvidenceError, read_lines
+from .evidence import EvidenceError, read_lines, redact_line
 
 WRITE_RE = re.compile(r"(save|create|insert|update|upsert|delete|remove|destroy|replace|bulk|truncate|drop|commit|add|"
                       r"increment|decrement|AndUpdate|AndDelete|AndRemove|AndReplace)", re.I)
@@ -124,7 +124,7 @@ class AccessIndex:
             routes.append((dict(r), _route_regex(p)))
         if not routes:
             return []
-        rows = self.store.q("SELECT file, line, caller, expr, name, receiver, external FROM calls "
+        rows = self.store.q("SELECT id, file, line, caller, expr, name, receiver, external FROM calls "
                             "WHERE (resolution='external' AND external IN (%s)) OR (name='fetch' AND receiver IS NULL)"
                             % ",".join("?" * len(HTTP_LIBS)), tuple(sorted(HTTP_LIBS)))
         out = []
@@ -132,9 +132,7 @@ class AccessIndex:
             lines = self.lines(c["file"])
             if not (1 <= c["line"] <= len(lines)):
                 continue
-            ln = lines[c["line"] - 1]
-            pos = ln.find(c["expr"])
-            seg = (ln[pos:] if pos >= 0 else ln) + " " + " ".join(lines[c["line"]:c["line"] + 2])  # URL on next line
+            seg = _call_slice(lines, c["line"], c["expr"], is_py=c["file"].endswith((".py", ".pyi")))
             m = STR_LIT.search(seg)
             if not m:
                 continue
@@ -144,24 +142,91 @@ class AccessIndex:
             if c["name"] in HTTP_METHODS:
                 method = c["name"].upper()
             elif c["name"] in ("fetch", "request", "ky", "got") or c["expr"] in ("axios", "fetch"):
-                window = " ".join(lines[c["line"] - 1:c["line"] + 6])
-                mm = FETCH_METHOD.search(window)
+                mm = FETCH_METHOD.search(seg)
                 method = mm.group(1).upper() if mm else "GET"
             if not method:
                 continue
             norm = _norm(path)
-            hit = None
-            for r, rx in routes:
-                if r["file"] == c["file"]:
-                    continue
-                if r["method"] not in (method, "ALL", "USE") or not rx.match(norm):
-                    continue
-                hit = r
-                break
+            cands = [r for r, rx in routes
+                     if r["file"] != c["file"] and r["method"] in (method, "ALL", "USE") and rx.match(norm)]
+            # exact method beats ALL/USE, literal path beats wildcard; id makes the pick independent of row order
+            hit = min(cands, key=lambda r: (r["method"] != method, "*" in (r["full_path"] or r["path"]), r["id"]),
+                      default=None)
             if hit:
-                out.append({"file": c["file"], "line": c["line"], "caller": c["caller"], "expr": c["expr"],
-                            "method": method, "url": url, "route": hit})
+                out.append({"id": c["id"], "file": c["file"], "line": c["line"], "caller": c["caller"], "expr": c["expr"],
+                            "method": method, "url": redact_line(url)[0], "route": hit})
         return out
+
+
+def _call_slice(lines: list, line_no: int, expr: str, is_py: bool = False) -> str:
+    """Extract the single call expression starting at `expr` through its matching `)` across up to 12 lines."""
+    idx = line_no - 1
+    ln = lines[idx]
+    pos = ln.find(expr + "(")
+    if pos < 0:
+        pos = ln.find(expr)
+    pos = max(0, pos)
+    chunk = "\n".join(lines[idx:idx + 12])
+    start = chunk.find("(", pos)
+    if start < 0:
+        return ln[pos:]
+    depth, quote, esc, line_cmt, block_cmt, in_regex, regex_cls = 0, None, False, False, False, False, False
+    prev_sig = ""
+    i = start
+    while i < len(chunk):
+        ch = chunk[i]
+        if line_cmt:
+            if ch == "\n":
+                line_cmt = False
+        elif block_cmt:
+            if chunk[i:i + 2] == "*/":
+                block_cmt = False
+                i += 2
+                continue
+        elif esc:
+            esc = False
+        elif quote:
+            if ch == "\\":
+                esc = True
+            elif ch == quote:
+                quote = None
+                prev_sig = quote
+        elif in_regex:
+            if ch == "\\":
+                esc = True
+            elif ch == "[" and not regex_cls:
+                regex_cls = True
+            elif ch == "]" and regex_cls:
+                regex_cls = False
+            elif ch == "/" and not regex_cls:
+                in_regex = False
+                prev_sig = "/"
+        elif is_py and ch == "#":
+            line_cmt = True
+        elif not is_py and chunk[i:i + 2] == "//":
+            line_cmt = True
+            i += 2
+            continue
+        elif not is_py and chunk[i:i + 2] == "/*":
+            block_cmt = True
+            i += 2
+            continue
+        elif not is_py and ch == "/" and prev_sig in ("", "(", ",", ":", "=", "[", "{", "!", "&", "|", "?", ";", "~", "+", "-", "*", "%", "^", "<", ">"):
+            in_regex = True
+        elif ch in ("'", '"', "`"):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+            prev_sig = "("
+        elif ch == ")":
+            depth -= 1
+            prev_sig = ")"
+            if depth == 0:
+                return chunk[pos:i + 1]
+        elif not ch.isspace():
+            prev_sig = ch
+        i += 1
+    return chunk[pos:]
 
 
 def _norm(p: str) -> str:

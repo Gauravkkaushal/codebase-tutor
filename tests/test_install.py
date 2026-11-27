@@ -27,8 +27,10 @@ def test_install_all_user_scope(tmp_path):
 
 def test_update_requires_force_and_aliases(tmp_path):
     run(tmp_path, "--agent", "claude")
-    assert "exists" in run(tmp_path, "--agent", "claude").stdout
+    refused = run(tmp_path, "--agent", "claude")
+    assert refused.returncode != 0 and "exists" in refused.stdout
     r = run(tmp_path, "--agent", "deepseek,opencode", "--force")
+    assert r.returncode == 0
     assert "[claude] installed" in r.stdout and "[opencode] installed" in r.stdout
     assert (tmp_path / ".config/opencode/skills/codebase-tutor/SKILL.md").exists()
 
@@ -57,3 +59,14 @@ def test_skill_md_tells_agent_to_take_task_from_command():
     meta = yaml.safe_load(front)
     assert meta["name"] == "codebase-tutor" and len(meta["description"]) <= 1024
     assert set(meta) <= {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+
+
+def test_project_scope_inside_skill_dir_does_not_recurse(tmp_path, monkeypatch):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import install_skill
+    fake = tmp_path / "skill_checkout"
+    fake.mkdir()
+    (fake / "SKILL.md").write_text("---\nname: codebase-tutor\n---\n", encoding="utf-8")
+    monkeypatch.setattr(install_skill, "SKILL_DIR", fake.resolve())
+    msg = install_skill.install_one("claude", "project", fake, link=False, force=False)
+    assert "FAILED" in msg and not (fake / ".claude").exists()

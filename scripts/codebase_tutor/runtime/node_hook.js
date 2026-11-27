@@ -59,7 +59,7 @@ Module._load = function (request, parent, isMain) {
   let file;
   try { file = Module._resolveFilename(request, parent, isMain); } catch (e) { return exp; }
   if (!inRepo(file)) return exp;
-  const rel = path.relative(ROOT, file);
+  const rel = path.relative(ROOT, file).split(SEP).join('/');
   try {
     if (typeof exp === 'function') {
       const w = wrap(exp, rel, exp.name || 'default');

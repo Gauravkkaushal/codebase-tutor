@@ -76,7 +76,7 @@ claude
 ```bash
 # macOS / Linux
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-export ANTHROPIC_AUTH_TOKEN=<your DeepSeek API key>
+export ANTHROPIC_AUTH_TOKEN="<your DeepSeek API key>"
 export ANTHROPIC_MODEL=deepseek-v4-pro
 claude
 ```

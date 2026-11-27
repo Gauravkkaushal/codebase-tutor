@@ -16,6 +16,9 @@ SECRET_PATTERNS = [
 ]
 ASSIGN_SECRET = re.compile(
     r"""(?i)((?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)\w*["']?\s*[:=]\s*)(["'])([^"'\n]{6,})\2""")
+URL_QUERY_SECRET = re.compile(
+    r"""(?i)([?&](?:token|access_token|refresh_token|api_key|apikey|secret|password|passwd|pwd|auth|key|signature|sig|x-amz-credential|x-amz-signature)=)([^&#\s"'`]+)"""
+)
 VERIFICATION_LEVELS = ("verified-source", "structurally-inferred", "test-verified", "runtime-observed",
                        "partially-verified", "not-verified")
 
@@ -38,6 +41,8 @@ def redact_line(line: str) -> tuple[str, int]:
         line, k = rx.subn(rep, line)
         n += k
     line, k = ASSIGN_SECRET.subn(lambda m: f"{m.group(1)}{m.group(2)}«redacted»{m.group(2)}", line)
+    n += k
+    line, k = URL_QUERY_SECRET.subn(r"\1«redacted»", line)
     return line, n + k
 
 
@@ -48,9 +53,14 @@ def safe_path(root: Path, path: str) -> Path:
         raise EvidenceError(f"path escapes repository: {path}")
     if not p.is_file():
         raise EvidenceError(f"file not found: {path}")
-    _, role = classify(path, 0)
-    if role in ("secret", "binary"):
-        raise EvidenceError(f"refusing to read {role} file: {path}")
+    req_rel = path.replace("\\", "/")
+    while req_rel.startswith("./"):
+        req_rel = req_rel[2:]
+    rel = p.relative_to(root).as_posix()
+    for candidate in (req_rel, rel):
+        _, role = classify(candidate, 0)
+        if role in ("secret", "binary"):
+            raise EvidenceError(f"refusing to read {role} file: {path}")
     return p
 
 

@@ -6,7 +6,7 @@ So `python scripts/install_skill.py --agent all` is already enough; `--agent ope
 `~/.config/opencode/skills/codebase-tutor` if you only use OpenCode.
 
 ## Use
-Type `/codebase-tutor <task>` or just ask ("explain this repo"); the agent loads the skill with its `skill` tool.
+Name the skill in your prompt (e.g. `use codebase-tutor: explain this repo`) or just ask naturally; OpenCode loads the skill with its `skill` tool (installing a skill does not create a `/codebase-tutor` slash command).
 
 ## DeepSeek
 Run `/connect` in OpenCode, choose DeepSeek and paste your API key, then select the model with `/models`.

@@ -108,7 +108,6 @@ def build_data(store, root: Path, lang: str) -> dict:
     fg = file_graph(store)
     roles = {r["path"]: (r["role"], r["lang"], r["lines"] or 0, r["status"]) for r in store.q("SELECT path, role, lang, lines, status FROM files")}
     sym_count = {r[0]: r[1] for r in store.q("SELECT file, COUNT(*) FROM symbols GROUP BY file")}
-    max_nodes = int(cfg["report"].get("max_graph_nodes", 400))
     file_nodes = [{"id": p, "module": module_of(p), "lang": v[1], "lines": v[2], "symbols": sym_count.get(p, 0),
                    "layer": layer_hint(p)} for p, v in roles.items() if v[0] == "source" and v[1] in ("python", "javascript", "typescript", "tsx")]
     for n in mg["nodes"]:
@@ -161,6 +160,8 @@ def build_data(store, root: Path, lang: str) -> dict:
 
 
 def _jsonable(obj):
+    if isinstance(obj, str):  # system-map evidence carries raw URLs/snippets; tokens must not reach data.js
+        return redact_line(obj)[0]
     if isinstance(obj, set):
         return sorted(obj)
     if isinstance(obj, dict):
@@ -310,7 +311,7 @@ def render_markdown(data: dict, lang: str) -> str:
                 for ev in sec.get("evidence", []):
                     st = ev.get("current_status", "valid")
                     flag = "" if st == "valid" else f" ⚠ {T('ev_' + st)}"
-                    L.append(f"- {T('evidence')}: {_cite(ev['file'])}:{ev['lines']}" + (f" ({ev['symbol']})" if ev.get("symbol") else "") + flag)
+                    L.append(f"- {T('evidence')}: `{ev['file']}:{ev['lines']}`" + (f" ({ev['symbol']})" if ev.get("symbol") else "") + flag)
                     try:
                         s, _, en = ev["lines"].partition("-")
                         s, en = int(s), int(en or s)

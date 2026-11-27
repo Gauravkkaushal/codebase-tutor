@@ -108,12 +108,16 @@ def _range(spec: str):
 
 def cmd_evidence(a):
     from .evidence import EvidenceError, excerpt, format_excerpt, register
-    s, e = _range(a.lines)
-    hl = []
-    for part in (a.highlight or "").split(","):
-        if part.strip():
-            hs, he = _range(part.strip())
-            hl.extend(range(hs, he + 1))
+    try:
+        s, e = _range(a.lines)
+        hl = []
+        for part in (a.highlight or "").split(","):
+            if part.strip():
+                hs, he = _range(part.strip())
+                hl.extend(range(hs, he + 1))
+    except ValueError:
+        _out({"error": f"invalid line range '{a.lines}' (expected N or START-END)"})
+        sys.exit(2)
     try:
         ev = excerpt(a.repo, a.path, s, e, highlight=hl, context=a.context)
     except EvidenceError as ex:
@@ -362,7 +366,16 @@ def main(argv=None) -> int:
                 args.yes = True
             elif tok in ("--timeout", "--label", "--lang"):
                 val = next(it, None)
-                setattr(args, tok[2:], int(val) if tok == "--timeout" else val)
+                if val is None:
+                    _out({"error": f"{tok} requires a value"})
+                    return 2
+                if tok == "--timeout":
+                    try:
+                        val = int(val)
+                    except ValueError:
+                        _out({"error": f"invalid --timeout value '{val}'"})
+                        return 2
+                setattr(args, tok[2:], val)
             else:
                 rest.append(tok)
         args.args = rest

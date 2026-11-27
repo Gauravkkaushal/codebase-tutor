@@ -1,4 +1,5 @@
 """Opens the generated report in a real Chromium/Chrome (skipped when Playwright or a browser is unavailable)."""
+from pathlib import Path
 import shutil
 
 import pytest
@@ -13,7 +14,7 @@ def test_report_renders_without_errors(js_repo, run_ct):
     run_ct(js_repo, "trace", "POST /api/auth/login")
     run_ct(js_repo, "context", "signToken")
     r = run_ct(js_repo, "report")
-    url = "file://" + r["index_html"]
+    url = Path(r["index_html"]).as_uri()
     errors = []
     with pw.sync_playwright() as p:
         b = p.chromium.launch(executable_path=CHROME)

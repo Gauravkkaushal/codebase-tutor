@@ -134,7 +134,7 @@
   const VZ = window.CTViz || null;
   const SM = D.system_map && D.system_map.nodes && D.system_map.nodes.length ? D.system_map : null;
   let live = [];        // running visualisations, destroyed on every render
-  let flowStage = null; let dashTimer = null;
+  let flowStage = null; let dashTimer = null; let dfTimer = null;
   const SYM_OPTS = { symFile: (id) => (symById.get(id) || [])[4] || null, symName: (id) => (symById.get(id) || [])[2] || null };
   function counts() {
     return {
@@ -149,7 +149,7 @@
     $('#meta-line').innerHTML = `${esc(t('commit'))} <code>${esc((D.meta.commit || 'n/a').slice(0, 10))}</code>${D.meta.dirty ? ' · ' + esc(t('dirty_tree')) : ''} · ${esc(D.meta.branch || '')} · ${esc(t('generated'))} ${esc(fmtDate(D.meta.generated_at))}`;
     $('#legend-btn').textContent = t('legend_btn');
     const sel = $('#lang-select');
-    sel.innerHTML = D.meta.languages.map((l) => `<option value="${l}"${l === lang ? ' selected' : ''}>${esc((D.i18n[l] || {}).lang_name || l)}</option>`).join('');
+    sel.innerHTML = D.meta.languages.map((l) => `<option value="${esc(l)}"${l === lang ? ' selected' : ''}>${esc((D.i18n[l] || {}).lang_name || l)}</option>`).join('');
     const c = counts();
     $('#sidenav').innerHTML = TABS.map((k) => `<a href="#/${k}" data-tab="${k}" class="${state.tab === k ? 'active' : ''}">${esc(t('nav_' + k))}${c[k] ? `<span class="count">${c[k]}</span>` : ''}</a>`).join('') +
       `<div class="sep"></div><div class="hint">${esc(t('nav_hint'))}</div>`;
@@ -298,14 +298,14 @@
       cap.hidden = false;
       if (seq.length < 2) { cap.innerHTML = `${esc(t('df_replay_none'))} <a href="#/flows" data-flow="${sel.value}">${esc(t('open_player'))}</a>`; return; }
       map.select(null);
-      const say = (k) => { const s = f.steps[stepOf[k]]; cap.innerHTML = `<span class="badge b-${s.outcome === 'failure' ? 'failed' : s.outcome === 'success' ? 'passed' : 'inferred'}">${esc(t('step'))} ${s.n}</span> <strong>${esc(SM.nodes.find((n) => n.id === seq[k]).label)}</strong> — ${esc(s.text)} · ${ref(s.file, s.line)}`; };
+      const say = (k) => { const s = f.steps[stepOf[k]]; const node = SM.nodes.find((n) => n.id === seq[k]); cap.innerHTML = `<span class="badge b-${s.outcome === 'failure' ? 'failed' : s.outcome === 'success' ? 'passed' : 'inferred'}">${esc(t('step'))} ${s.n}</span> <strong>${esc(node ? node.label : seq[k])}</strong> — ${esc(s.text)} · ${ref(s.file, s.line)}`; };
       say(0);
       map.replay(seq, say, () => { cap.insertAdjacentHTML('beforeend', ` <span class="small muted">· ${esc(t('df_replay_done'))}</span> <a href="#/flows" data-flow="${sel.value}">${esc(t('open_player'))}</a>`); });
     };
     btn.onclick = run;
     $('#df-cap').addEventListener('click', (e) => { const a = e.target.closest('a[data-flow]'); if (a) { state.flowIdx = +a.dataset.flow; state.step = 0; } });
     const m = /^flow:(\d+)$/.exec(state.arg || '');
-    if (m && D.flows[+m[1]]) { sel.value = m[1]; setTimeout(run, 350); }
+    if (m && D.flows[+m[1]]) { sel.value = m[1]; dfTimer = setTimeout(() => { dfTimer = null; run(); }, 350); }
   };
 
   // ---- architecture
@@ -433,8 +433,8 @@
     $('#p-prev').onclick = () => { stopPlay(); state.step = Math.max(0, state.step - 1); drawStep(); };
     $('#p-next').onclick = () => { stopPlay(); state.step = Math.min(f.steps.length - 1, state.step + 1); drawStep(); };
     $('#p-play').onclick = () => { state.playing ? stopPlay() : startPlay(); };
-    $('#p-speed').onchange = (e) => { state.speed = +e.target.value; if (state.playing) { stopPlay(); startPlay(); } };
-    $('#steps').innerHTML = f.steps.map((s, i) => `<div class="step" data-i="${i}" style="padding-left:${8 + (s.depth || 0) * 14}px"><span class="n">${s.n}</span><span class="o-${s.outcome}">${s.outcome === 'failure' ? '✗' : s.outcome === 'success' ? '✓' : '·'}</span><span>${esc(s.text)}${s.verification !== 'verified-source' ? ' ' + badge(s.verification === 'unresolved' ? 'unresolved' : s.verification, s.verification === 'unresolved' ? t('unresolved') : null) : ''}${s.stale ? ` <span class="badge b-stale">${esc(t('ev_stale'))}</span>` : ''}<span class="meta2">${esc(s.file)}:${s.line}</span></span></div>`).join('');
+    $('#p-speed').onchange = (e) => { state.speed = +e.target.value; if (state.playing) { stopPlay(true); startPlay(); } };
+    $('#steps').innerHTML = f.steps.map((s, i) => `<div class="step" data-i="${i}" style="padding-left:${8 + (s.depth || 0) * 14}px"><span class="n">${s.n}</span><span class="o-${esc(s.outcome)}">${s.outcome === 'failure' ? '✗' : s.outcome === 'success' ? '✓' : '·'}</span><span>${esc(s.text)}${s.verification !== 'verified-source' ? ' ' + badge(s.verification === 'unresolved' ? 'unresolved' : s.verification, s.verification === 'unresolved' ? t('unresolved') : null) : ''}${s.stale ? ` <span class="badge b-stale">${esc(t('ev_stale'))}</span>` : ''}<span class="meta2">${esc(s.file)}:${s.line}</span></span></div>`).join('');
     $$('#steps .step').forEach((el) => { el.onclick = () => { stopPlay(); state.step = +el.dataset.i; drawStep(); }; });
     $('#outcomes').innerHTML = (f.outcomes || []).length ? `<p class="small muted">${esc(t('scenarios_note'))}</p><ul class="list">` + f.outcomes.map((o) => `<li><span class="badge b-${o.outcome === 'failure' ? 'failed' : 'passed'}">${esc(t('outcome_' + o.outcome))}</span> <a href="#" data-step="${o.step - 1}">${esc(t('step'))} ${o.step}</a> · <code>${esc(o.text)}</code> · ${ref(o.file, o.line)}${o.nearest_guards.length ? `<br><span class="small muted">${esc(t('guards'))}: ${o.nearest_guards.map((g) => `<code>${esc(g.text)}</code>`).join(' → ')}</span>` : ''} <button class="mini" data-play-to="${o.step - 1}">▶ ${esc(t('play_to_here'))}</button></li>`).join('') + '</ul>' : `<p class="muted">${esc(t('no_outcomes'))}</p>`;
     $$('#outcomes a[data-step]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); stopPlay(); state.step = +a.dataset.step; drawStep(); window.scrollTo({ top: 0, behavior: 'smooth' }); }; });
@@ -451,8 +451,8 @@
       state.step++; drawStep();
     }, 1400 / state.speed);
   }
-  function stopPlay() {
-    state.playing = false; state.playTo = null; if (state.timer) clearInterval(state.timer); state.timer = null;
+  function stopPlay(keepPlayTo) {
+    state.playing = false; if (!keepPlayTo) state.playTo = null; if (state.timer) clearInterval(state.timer); state.timer = null;
     const btn = $('#p-play'); if (btn) btn.innerHTML = '▶ ' + esc(t('play'));
   }
   function drawStep() {
@@ -485,7 +485,9 @@
   };
   function parseCodeArg(arg) {
     if (!arg) return [null];
-    const m = decodeURIComponent(arg).match(/^(.*?)(?::(\d+)(?:-(\d+))?)?$/);
+    let dec = arg;
+    try { dec = decodeURIComponent(arg); } catch (e) { /* keep raw */ }
+    const m = dec.match(/^(.*?)(?::(\d+)(?:-(\d+))?)?$/);
     return [m[1], m[2] ? +m[2] : null, m[3] ? +m[3] : (m[2] ? +m[2] : null)];
   }
   V.code.after = function () {
@@ -516,7 +518,7 @@
       <h3>${esc(t('imports'))}</h3><ul class="list small">${imps.map((x) => `<li>${ref(file, x[2])} → ${ref(x[1])}</li>`).join('') || '<li class="muted">—</li>'}</ul>
       <h3>${esc(t('imported_by'))}</h3><ul class="list small">${by.map((x) => `<li>${ref(x[0], x[2])}</li>`).join('') || '<li class="muted">—</li>'}</ul><div id="sym-detail"></div>`;
     $$('#file-side a[data-sym]').forEach((a) => { a.onclick = (ev) => {
-      ev.preventDefault(); const sid = +a.dataset.sym; const sym = symById.get(sid);
+      ev.preventDefault(); const sid = +a.dataset.sym; const sym = symById.get(sid); if (!sym) return;
       const row = (x, other) => { const o = symById.get(x[other]); return `<li>${o ? `<a href="${codeHref(o[4], o[5], o[6])}">${esc(o[2])}</a>` : '?'} · ${ref(x[3], x[4])} ${x[2] !== 'verified-source' ? badge(x[2]) : ''}</li>`; };
       $('#sym-detail').innerHTML = `<h3 class="mono">${esc(sym[2])}</h3><h3>${esc(t('callers'))}</h3><ul class="list small">${callers(sid).map((x) => row(x, 0)).join('') || '<li class="muted">—</li>'}</ul><h3>${esc(t('callees'))}</h3><ul class="list small">${callees(sid).map((x) => row(x, 1)).join('') || '<li class="muted">—</li>'}</ul><p class="small muted">${esc(t('resolved_edges_only'))}</p>`;
     }; });
@@ -603,7 +605,7 @@
     const s = c.summary;
     h += `<p class="sub">${esc(t('changes_vs', { baseline: c.baseline.id || '', kind: c.baseline.kind }))} · ${esc(fmtDate(c.generated_at))} · ${esc(c.verification)}</p>`;
     h += `<div class="stats">` + [[s.files_added, t('files_added')], [s.files_modified, t('files_modified')], [s.files_deleted, t('files_deleted')], [s.symbols_modified, t('symbols_modified')], [s.impacted_symbols, t('impacted_symbols')], [c.risks.length, t('risks')]].map(([v, k]) => `<div class="stat"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`).join('') + `</div>`;
-    if (c.risks.length) h += `<h2>${esc(t('risks'))}</h2><div class="card"><ul class="list">` + c.risks.map((r) => `<li><span class="badge b-${r.level}">${esc(t('risk_' + r.level))}</span> <strong>${esc(r.kind)}</strong> — ${esc(r.detail)} ${r.file ? ref(r.file, r.line) : ''}</li>`).join('') + `</ul></div>`;
+    if (c.risks.length) h += `<h2>${esc(t('risks'))}</h2><div class="card"><ul class="list">` + c.risks.map((r) => `<li><span class="badge b-${esc(r.level)}">${esc(t('risk_' + r.level))}</span> <strong>${esc(r.kind)}</strong> — ${esc(r.detail)} ${r.file ? ref(r.file, r.line) : ''}</li>`).join('') + `</ul></div>`;
     h += `<h2>${esc(t('code_and_behaviour'))}</h2>`;
     c.files.forEach((f, i) => {
       const sd = f.symbols || {};
@@ -643,7 +645,7 @@
       D.test_runs.slice().reverse().forEach((r) => {
         const c = r.counts || {};
         h += `<div class="card" style="margin-bottom:10px"><div class="row"><span class="badge b-${r.status === 'passed' ? 'passed' : 'failed'}">${esc(r.status)}</span><code>${esc(r.command)}</code><span class="spacer"></span><span class="small muted">${c.passed || 0} ${esc(t('passed'))} · ${c.failed || 0} ${esc(t('failed'))} · ${c.skipped || 0} ${esc(t('skipped'))} · ${r.duration_s}s · ${esc((r.git_commit || '').slice(0, 10))}${r.dirty ? ' ' + esc(t('dirty_tree')) : ''}</span></div>` +
-          `<details><summary class="small">${esc(t('per_test'))} (${(r.tests || []).length})</summary><ul class="list small">` + (r.tests || []).map((x) => `<li><span class="badge b-${x.status}">${esc(t(x.status))}</span> ${esc(x.name)} ${x.file ? ref(x.file) : ''}${x.message ? `<br><span class="muted">${esc(x.message)}</span>` : ''}</li>`).join('') + `</ul></details><p class="small muted">${esc(r.verification || '')}</p></div>`;
+          `<details><summary class="small">${esc(t('per_test'))} (${(r.tests || []).length})</summary><ul class="list small">` + (r.tests || []).map((x) => `<li><span class="badge b-${esc(x.status)}">${esc(t(x.status))}</span> ${esc(x.name)} ${x.file ? ref(x.file) : ''}${x.message ? `<br><span class="muted">${esc(x.message)}</span>` : ''}</li>`).join('') + `</ul></details><p class="small muted">${esc(r.verification || '')}</p></div>`;
       });
     } else {
       h += `<p>${badge('runtime-observed')} ${esc(t('sim_l3_desc'))}</p>`;
@@ -671,6 +673,7 @@
   }
   function render() {
     if (state.tab !== 'flows') stopPlay();
+    if (dfTimer) { clearTimeout(dfTimer); dfTimer = null; }
     live.forEach((x) => { try { x.destroy(); } catch (e) { /* ignore */ } }); live = [];
     if (flowStage) { flowStage.destroy(); flowStage = null; }
     if (dashTimer) { clearInterval(dashTimer); dashTimer = null; }
@@ -682,7 +685,7 @@
     if (state.tab !== 'code') main.focus({ preventScroll: true });
   }
   document.addEventListener('keydown', (e) => {
-    if (state.tab !== 'flows' || /input|select|textarea/i.test(document.activeElement.tagName)) return;
+    if (state.tab !== 'flows' || (document.activeElement && /input|select|textarea/i.test(document.activeElement.tagName))) return;
     if (e.key === ' ') { e.preventDefault(); state.playing ? stopPlay() : startPlay(); }
     else if (e.key === 'ArrowRight') { const n = $('#p-next'); if (n) n.click(); }
     else if (e.key === 'ArrowLeft') { const p = $('#p-prev'); if (p) p.click(); }

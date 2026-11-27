@@ -85,7 +85,7 @@ class _Tracer:
             if e[2] == "call":
                 return 1
             k = e[3].get("kind")
-            return 0 if k in ("if", "else", "assert") else 2 if k in ("return", "throw", "raise") else 3
+            return 0 if k in ("if", "else", "assert", "catch") else 2 if k in ("return", "throw", "raise") else 3
         events.sort(key=lambda e: (e[0], _order(e)))
         seen_lines_calls = set()
         last_ctl = None

@@ -96,8 +96,9 @@ def classify(path: str, size: int) -> tuple[str, str]:
     p = PurePosixPath(path)
     name, ext = p.name, p.suffix.lower()
     lang = LANG_BY_EXT.get(ext) or NAME_LANG.get(name) or ("text" if not ext else ext.lstrip("."))
-    if name in SECRET_NAMES or (name.startswith(SECRET_FILE_PREFIXES) and not name.endswith(SECRET_SAFE_SUFFIXES)
-                                and name != ".envrc.example"):
+    low = name.lower()
+    if low in SECRET_NAMES or (low.startswith(SECRET_FILE_PREFIXES) and not low.endswith(SECRET_SAFE_SUFFIXES)
+                               and low != ".envrc.example"):
         return lang, "secret"
     if ext in BINARY_EXT:
         return lang, "binary"

@@ -16,7 +16,7 @@ STORAGE = {
     "knex": ("database", "SQL (Knex)"), "drizzle-orm": ("database", "SQL (Drizzle)"), "sqlalchemy": ("database", "SQL (SQLAlchemy)"),
     "psycopg2": ("database", "PostgreSQL"), "psycopg": ("database", "PostgreSQL"), "pymongo": ("database", "MongoDB"),
     "peewee": ("database", "SQL (peewee)"), "flask_sqlalchemy": ("database", "SQL (SQLAlchemy)"),
-    "mongoengine": ("database", "MongoDB"), "motor": ("database", "MongoDB"), "tortoise": ("database", "SQL (Tortoise)"), "django.db": ("database", "Database (Django ORM)"), "redis-om": ("database", "Redis"),
+    "mongoengine": ("database", "MongoDB"), "motor": ("database", "MongoDB"), "tortoise": ("database", "SQL (Tortoise)"), "django.db": ("database", "Database (Django ORM)"), "redis-om": ("database", "Redis (OM)"),
     "elasticsearch": ("database", "Elasticsearch"), "@supabase/supabase-js": ("database", "Supabase"), "firebase-admin": ("database", "Firebase"),
     # caches
     "redis": ("cache", "Redis"), "ioredis": ("cache", "Redis"), "memcached": ("cache", "Memcached"), "lru-cache": ("cache", "In-memory cache"),
@@ -123,7 +123,7 @@ def system_map(store, max_modules: int = 16, root=None) -> dict:
     modmap = pick_modules(src, max_modules)
     acc = AccessIndex(store, root)
     http = [h for h in acc.http_calls() if h["file"] in src]
-    http_lines = {(h["file"], h["line"]) for h in http}
+    http_ids = {h["id"] for h in http}
     route_files = defaultdict(int)
     for r in store.q("SELECT file FROM routes WHERE kind='route'"):
         if r["file"] in src:
@@ -159,10 +159,10 @@ def system_map(store, max_modules: int = 16, root=None) -> dict:
     usage = defaultdict(lambda: {"count": 0, "evidence": [], "modules": set()})  # (module, storage_label) -> ...
     storage_kind = {}
     covered = set()  # (module, label) whose package use is fully explained by in-repo HTTP calls
-    for r in store.q("SELECT file, line, expr, external FROM calls WHERE resolution='external'"):
+    for r in store.q("SELECT id, file, line, expr, external FROM calls WHERE resolution='external'"):
         if r["file"] not in src:
             continue
-        if (r["file"], r["line"]) in http_lines:
+        if r["id"] in http_ids:
             cls = classify_external(r["external"])
             if cls:
                 covered.add((modmap[r["file"]], cls[1]))
@@ -280,8 +280,8 @@ def system_map(store, max_modules: int = 16, root=None) -> dict:
         for n in nodes:
             if n.get("routes"):
                 ev = [{"file": r["file"], "line": r["line"], "text": f"{r['method']} {r['full_path'] or r['path']}", "via": "route"}
-                      for r in store.q("SELECT file, line, method, path, full_path FROM routes WHERE kind='route' AND file LIKE ? LIMIT 6",
-                                       (n["id"].rstrip("/") + "/%" if n["id"] != "(root)" else "%",))]
+                      for r in store.q("SELECT file, line, method, path, full_path FROM routes WHERE kind='route' AND file LIKE ? ESCAPE '!' LIMIT 6",
+                                       (_like_prefix(n["id"]) if n["id"] != "(root)" else "%",))]
                 edges.append({"source": "@client", "target": n["id"], "kind": "request", "weight": n["routes"],
                               "label": f"{n['routes']} route(s)", "evidence": ev, "verification": "verified-source"})
     for (a, b), x in http_by_mod.items():
@@ -318,3 +318,9 @@ def system_map(store, max_modules: int = 16, root=None) -> dict:
             "modules_shown": len(keep),
             "note": "Components and storages come from parsed imports and external calls. Layers come from entry points, "
                     "routes and handlers (verified) or folder names (inferred). Dynamic wiring is not shown."}
+
+
+def _like_prefix(module_id: str) -> str:
+    """LIKE pattern (ESCAPE '!') for files under module_id, so `my_app` cannot match `myXapp`."""
+    esc = module_id.rstrip("/").replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return esc + "/%"
